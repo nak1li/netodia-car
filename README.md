@@ -90,7 +90,7 @@ docker exec ncm-server node /app/server/anonimous.js
 
 ```bash
 export NCM_TOKEN_FILE=~/.ncm/secrets/ncm.token     # 服务端令牌，构建时注入
-export NCM_SERVER=http://<你的服务器IP>:28475       # 或写进 ~/.hermes/secrets/ncm.server
+export NCM_SERVER=http://<你的服务器IP>:28475     # 或写进 ~/.hermes/secrets/ncm.server
 bash app/build.sh
 # 产物 app/build/Netodia-Car.apk
 ```
