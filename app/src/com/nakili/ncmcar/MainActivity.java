@@ -537,7 +537,8 @@ public class MainActivity extends Activity implements Player.Listener {
             applyNavCollapsed(true);
             return;
         }
-        if (navCollapsed) applyNavCollapsed(false);
+        // 折叠态点图标只切页面、不展开左栏 —— 图标栏的意义就是腾出宽度，
+        // 点一下就弹开等于白收。要看名字用顶上那个 › 箭头。
         switch (idx) {
             case NAV_DAILY: loadDaily(); break;
             case NAV_LIKE: loadLiked(); break;
