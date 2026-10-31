@@ -66,20 +66,20 @@ public class MainActivity extends Activity implements Player.Listener {
     /* ---------------- 左栏入口 ---------------- */
     private static final int NAV_DAILY = 0;
     private static final int NAV_LIKE = 1;
-    private static final int NAV_PLAYLIST = 2;
-    private static final int NAV_SEARCH = 3;
-    private static final int NAV_HEART = 4;   // 心动模式（以当前歌为种子连播相似）
+    private static final int NAV_HEART = 2;   // 心动模式（以当前歌为种子连播相似）
+    private static final int NAV_PLAYLIST = 3;
+    private static final int NAV_SEARCH = 4;
     private static final int NAV_FM = 5;      // 私人 FM
     private static final int NAV_COUNT = 6;
 
     // 空串表示该入口用位图图标（4.4 字体没有这些字形）
-    private static final String[] NAV_ICONS = {"☀", "♥", "≡", "", "", ""};
-    private static final int[] NAV_DRAW = {0, 0, 0, R.drawable.ic_search,
-            R.drawable.ic_heart_mode, R.drawable.ic_fm};
-    private static final String[] NAV_TITLES = {"每日推荐", "红心歌曲", "我的歌单", "搜索",
-            "心动模式", "私人 FM"};
-    private static final String[] NAV_SUBS = {"每天 6:00 更新", "同步中…", "同步中…", "",
-            "按当前歌找相似", "猜你喜欢"};
+    private static final String[] NAV_ICONS = {"☀", "♥", "", "≡", "", ""};
+    private static final int[] NAV_DRAW = {0, 0, R.drawable.ic_heart_mode, 0,
+            R.drawable.ic_search, R.drawable.ic_fm};
+    private static final String[] NAV_TITLES = {"每日推荐", "红心歌曲", "心动模式", "我的歌单",
+            "搜索", "私人 FM"};
+    private static final String[] NAV_SUBS = {"每天 6:00 更新", "同步中…", "按当前歌找相似",
+            "同步中…", "", "猜你喜欢"};
 
     /* ---------------- 中栏列表类型 ---------------- */
     private static final int LIST_SONGS = 0;
@@ -101,8 +101,8 @@ public class MainActivity extends Activity implements Player.Listener {
     private int navSelected = -1;
     /** 左栏折叠：图标栏模式（56dp），中间列表和右侧播放器分走腾出来的宽度 */
     private boolean navCollapsed = false;
-    /** 多久没操作就把左栏自动收起（车主说「多久没动作自动折叠」） */
-    private static final long IDLE_COLLAPSE_MS = 60 * 1000L;
+    /** 多久没操作就把左栏自动收起（车主定：默认 30 秒） */
+    private static final long IDLE_COLLAPSE_MS = 30 * 1000L;
     private final Runnable idleCollapse = new Runnable() {
         @Override public void run() {
             if (!navCollapsed && !isFinishing()) applyNavCollapsed(true);
@@ -449,6 +449,17 @@ public class MainActivity extends Activity implements Player.Listener {
         TextView toggle = (TextView) findViewById(R.id.nav_collapse);
         toggle.setText(collapsed ? "\u203A" : "\u2039");
         toggle.setPadding(0, 0, 0, 0);
+        // 收窄到 56dp（减去左右 8dp 内边距只剩 40dp）后，齿轮+箭头放不下，
+        // 箭头会被挤出屏外 → 折叠态只留「展开」箭头，齿轮等展开后再出现
+        View gearBtn = findViewById(R.id.nav_gear);
+        if (gearBtn != null) gearBtn.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        android.view.ViewGroup.LayoutParams tlp = toggle.getLayoutParams();
+        tlp.width = dp(collapsed ? 40 : 40);
+        toggle.setLayoutParams(tlp);
+        toggle.setGravity(android.view.Gravity.CENTER);
+        // 折叠后这是唯一的展开入口，太小太暗不好点
+        toggle.setTextSize(collapsed ? 28 : 22);
+        toggle.setTextColor(collapsed ? 0xFFDDE4EE : 0xFF7D8896);
 
         int pad = dp(collapsed ? 0 : 13);
         for (int i = 0; i < NAV_COUNT; i++) {

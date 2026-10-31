@@ -70,9 +70,10 @@
                     android:background="@android:color/transparent" />
             </LinearLayout>
 
-            <!-- 4 个入口由代码 inflate item_nav.xml 填进来（选中态要逐项改色）。
-                 套一层 ScrollView：1024x600 下它就是那段留白；万一车机是 800x480
-                 也不会把「设置」挤到屏幕外（四个入口 4*84dp 仍然放得下，只是列表可滚）。 -->
+            <!-- 6 个入口由代码 inflate item_nav.xml 填进来（选中态要逐项改色）：
+                 每日推荐 / 红心歌曲 / 心动模式 / 我的歌单 / 搜索 / 私人 FM。
+                 每个 56dp+3dp 间距 = 354dp，1024x600 下不用滚动就能全看见；
+                 800x480 的屏会滚一段，但不会把入口挤丢失。 -->
             <ScrollView
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
