@@ -160,12 +160,16 @@ log "apksigner ..."
 # 放在里面等于每次构建都换一把新钥匙，车机上 adb install -r 会
 # INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES（只能先卸载再装）。
 KS="$PROJ/keys/release.keystore"
+# 注意：必须先判断「keys/ 是否本来就存在」再 mkdir，否则自己刚建的目录会
+# 让下面的保护逻辑误判成「钥匙丢了」，全新克隆直接构建失败。
+KEYS_DIR_EXISTED=0
+[ -d "$(dirname "$KS")" ] && KEYS_DIR_EXISTED=1
 mkdir -p "$(dirname "$KS")"
 if [ ! -f "$KS" ]; then
   # 已经有 keys/ 目录却找不到 keystore → 说明钥匙丢了。
   # 这时绝不能静默生成新钥匙：签名变了，车机上覆盖安装会 FAILED_UPDATE_INCOMPATIBLE，
   # 只能卸载重装（设置里的服务器地址/令牌/缓存全丢）。
-  [ -d "$(dirname "$KS")" ] && die "keystore 丢失：$(dirname "$KS") 存在但没有 release.keystore。请从备份恢复，或删掉该目录重新生成（会导致签名变更）"
+  [ "$KEYS_DIR_EXISTED" = "1" ] && die "keystore 丢失：$(dirname "$KS") 存在但没有 release.keystore。请从备份恢复，或删掉该目录重新生成（会导致签名变更）"
 
   log "首次构建：生成签名密钥 $KS（请备份，丢了就没法覆盖安装）"
   keytool -genkeypair -v -keystore "$KS" -storepass ncmcar \
