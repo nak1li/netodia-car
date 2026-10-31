@@ -294,7 +294,9 @@ public class MainActivity extends Activity implements Player.Listener {
             // 每帧都必须重置这三处状态：convertView 会把上一行的样子带过来
             h.title.setText(r.title);
             h.title.setTextColor(playing ? C_ACCENT : C_TEXT);
-            if (h.playing != null) h.playing.setVisibility(playing ? View.VISIBLE : View.GONE);
+            // 用 INVISIBLE 不用 GONE：GONE 会让这一行的标题右移，
+            // 同一列表里「在播」和「不在播」的歌名对不齐，看着很毛躁。
+            if (h.playing != null) h.playing.setVisibility(playing ? View.VISIBLE : View.INVISIBLE);
             h.sub.setText(r.sub);
             h.sub.setVisibility(r.sub.length() == 0 ? View.GONE : View.VISIBLE);
             h.cached.setVisibility(r.cached && r.heart ? View.VISIBLE : View.GONE);
