@@ -57,6 +57,14 @@ public class PlayService extends Service {
         else if (A_PREV.equals(action)) p.prev();
         else if (A_STOP.equals(action)) {
             p.stop();
+            // 光 stopSelf 不会撤掉前台通知（它是 startForeground 挂上去的），
+            // 必须显式 stopForeground(true) + cancel，否则通知永远留在通知栏
+            main.removeCallbacks(tick);
+            try { stopForeground(true); } catch (Exception e) { }
+            try {
+                ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                        .cancel(NOTIF_ID);
+            } catch (Exception e) { }
             stopSelf();
             return START_NOT_STICKY;
         }
