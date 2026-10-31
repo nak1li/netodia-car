@@ -2,7 +2,7 @@
   "name": "ncm-car-server",
   "version": "1.0.0",
   "private": true,
-  "description": "NetEase Cloud Music proxy + audio cache for a car head unit",
+  "description": "NetEase Cloud Music proxy + audio cache for a car head unit (non-commercial use only)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

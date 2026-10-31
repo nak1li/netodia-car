@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+#!/bin/bash
+# Netodia Car — 网易云音乐车机播放器
+# Copyright (c) 2026 nak1li
+#
+# Required Notice: Copyright (c) 2026 nak1li (Netodia Car). This project is licensed for
+# non-commercial use only. See LICENSE for details.
+#
+# 授权：PolyForm Noncommercial License 1.0.0 —— 仅限非商业用途。
+# 商业使用（含预装售卖、SaaS 收费、集成进商业产品）须先取得著作权人书面授权。
 # 免 gradle 构建车机 APK（API 19）
 # 流水线：aapt2 compile → aapt2 link → javac → d8 → zip → zipalign → apksigner
 #
