@@ -17,6 +17,7 @@ import android.text.style.ForegroundColorSpan;
 import android.text.style.StyleSpan;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -113,8 +114,15 @@ public class MainActivity extends Activity implements Player.Listener {
     private ListView songList;
     private TextView listTitle, listInfo, emptyHint;
     private RowAdapter adapter;
-    private View listTopPad, listBottomPad;   // 列表上下留白，让当前播放行能停在正中
-    private int padHeight = -1;
+    /**
+     * 当前播放行在列表可视区里的「槽位」（相对列表顶部的 px）。
+     * 切歌时新行落到这个槽位，列表就只滚一行，看起来是跟着歌在走；
+     * 绝不跳到正中（车主：不要居中，第一页尤其不能大跳）。
+     */
+    private int playAnchorPx = 0;
+    private boolean anchorValid = false;   // 换列表后作废，重新定位
+    private boolean userScrolling = false;        // 用户正在滚列表（含惯性）
+    private long lastUserScrollAt = 0;            // 最近一次用户滚动结束的时间
 
     // 右栏
     private TextView nowTitle, nowArtist, lyricView;
@@ -378,30 +386,25 @@ public class MainActivity extends Activity implements Player.Listener {
         // 由 Player.onQueueEnded() 回调触发，这里不挂点击。
         emptyHint = (TextView) findViewById(R.id.empty_hint);
         adapter = new RowAdapter();
-        // 上下各垫一段留白：ListView 默认只有到不了两头之外的滚动空间，
-        // 没有留白的话最后几首永远顶不到正中（车主要求正在播的固定在中间）
-        listTopPad = new View(this);
-        listBottomPad = new View(this);
-        songList.addHeaderView(listTopPad, null, false);
-        songList.addFooterView(listBottomPad, null, false);
         songList.setAdapter(adapter);
-        songList.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-            @Override public void onLayoutChange(View v, int l, int t, int r, int b,
-                                                 int ol, int ot, int or, int ob) {
-                try {
-                    int h = (b - t) / 2 - dp(36);
-                    if (h < 0) h = 0;
-                    if (padHeight == h) return;
-                    padHeight = h;
-                    // 直接换 LayoutParams：ListView 的 header/footer 布局参数可能还是 null，
-                    // 改字段会 NPE（4.4 上踩过）
-                    listTopPad.setLayoutParams(
-                            new AbsListView.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT, h));
-                    listBottomPad.setLayoutParams(
-                            new AbsListView.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT, h));
-                } catch (Exception e) { }
+        // 用户拖列表时别跟他抢：锚点跟着当前播放行的实际位置走，
+        // 并且记住「刚拖过」，这会儿切歌不要硬把列表拽回去。
+        // 用滚动态而不是 touch 事件，是为了让惯性滑动（fling）也算上。
+        songList.setOnScrollListener(new AbsListView.OnScrollListener() {
+            @Override public void onScrollStateChanged(AbsListView v, int state) {
+                if (state == AbsListView.OnScrollListener.SCROLL_STATE_TOUCH_SCROLL) {
+                    userScrolling = true;
+                } else if (state == AbsListView.OnScrollListener.SCROLL_STATE_IDLE) {
+                    if (userScrolling) lastUserScrollAt = SystemClock.uptimeMillis();
+                    userScrolling = false;
+                }
+            }
+            @Override public void onScroll(AbsListView v, int first, int count, int total) {
+                if (!userScrolling) return;            // 自己滚的，别动锚点
+                int cur = currentRowIndex();
+                if (cur < 0) return;
+                int top = rowTopOnScreen(cur);
+                if (top >= 0) playAnchorPx = Math.max(0, top);
             }
         });
 
@@ -620,7 +623,6 @@ public class MainActivity extends Activity implements Player.Listener {
         songList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
-                pos -= songList.getHeaderViewsCount();   // 头部留白占了一位
                 if (pos < 0 || pos >= adapter.getCount()) return;
                 Row r = (Row) adapter.getItem(pos);
                 if (listMode == LIST_PLAYLISTS) {
@@ -933,6 +935,7 @@ public class MainActivity extends Activity implements Player.Listener {
         }
         hideHint();
         adapter.setRows(rows);
+        anchorValid = false;              // 换了列表，锚点重新定位
         // 打开列表就滚到正在播的那首（没有就回顶部）
         int at = -1;
         Song cur = player == null ? null : player.getCurrent();
@@ -997,6 +1000,7 @@ public class MainActivity extends Activity implements Player.Listener {
         }
         hideHint();
         adapter.setRows(rows);
+        anchorValid = false;
         scrollListToTop();
     }
 
@@ -1127,6 +1131,7 @@ public class MainActivity extends Activity implements Player.Listener {
         }
         hideHint();
         adapter.setRows(rows);
+        anchorValid = false;
         scrollListToTop();
     }
 
@@ -1683,21 +1688,72 @@ public class MainActivity extends Activity implements Player.Listener {
         scrollListToCurrent(s.id);
     }
 
-    /** 回到列表最上面：把头部留白整段顶出去，让第一行贴着列表顶端 */
+    /** 回到列表最上面 */
     private void scrollListToTop() {
         if (songList == null || adapter == null) return;
         songList.post(new Runnable() {
             @Override public void run() {
-                int pad = listTopPad == null ? 0 : listTopPad.getHeight();
-                songList.setSelectionFromTop(songList.getHeaderViewsCount(), -pad);
+                songList.setSelectionFromTop(0, 0);
+            }
+        });
+    }
+
+    /** 当前播放的歌在 currentSongs 里的下标；-1 = 不在这个列表里 */
+    private int currentRowIndex() {
+        if (player == null) return -1;
+        Song cur = player.getCurrent();
+        if (cur == null) return -1;
+        for (int i = 0; i < currentSongs.size(); i++) {
+            if (currentSongs.get(i).id == cur.id) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * 某一行当前离列表顶端多远（px）；不在可视区返回 -1。
+     * getChildAt 收的是「可见子项序号」，所以要减去 firstVisiblePosition。
+     */
+    private int rowTopOnScreen(int index) {
+        if (songList == null || index < 0) return -1;
+        int first = songList.getFirstVisiblePosition();
+        int last = songList.getLastVisiblePosition();
+        if (index < first || index > last) return -1;
+        View v = songList.getChildAt(index - first);
+        return v == null ? -1 : v.getTop();
+    }
+
+
+    /** 把某一行滚到离列表顶端 offset 像素的位置（会动列表） */
+    private void scrollRowTo(final int index, final int offset) {
+        if (songList == null || index < 0) return;
+        songList.post(new Runnable() {
+            @Override public void run() {
+                songList.setSelectionFromTop(index, Math.max(0, offset));
+                // 列表滚不到的地方（比如末尾几行）会被 ListView 夹住，
+                // 滚完把锚点修正成实际位置，免得下一次又白滚一次
+                songList.post(new Runnable() {
+                    @Override public void run() {
+                        int top = rowTopOnScreen(index);
+                        if (top >= 0) playAnchorPx = top;
+                    }
+                });
             }
         });
     }
 
     /**
-     * 把中栏列表滚到正在播的那首，并且**固定放在列表正中**（车主定的）：
-     * 上下各留一半，往下切歌时列表跟着走，正在播的永远在中间那行。
-     * 用 post 等这一帧的布局跑完再滚，否则 notifyDataSetChanged 的重排会把滚动位置吃掉。
+     * 切歌后把列表带到当前这首歌。
+     *
+     * 车主定的逻辑（2026-11-01）：**列表跟着歌走，但绝不跳到正中**。
+     * 之前做成「永远把当前行钉在屏幕正中间」，结果每次切歌列表都大跳一下，
+     * 第一页尤其突兀（顶上还空半屏）—— 车主原话「第一页的时候不要保证居中」。
+     *
+     * 现在的做法是**锚点**：
+     * - 锚点 = 当前播放的歌在屏幕上的位置。歌已经在眼前就原地不动（不跳），
+     *   不在眼前就把它滚到列表顶端开始往下看 —— 都不是居中。
+     * - 之后每切一首，新歌都滚到同一个锚点位置，于是列表看起来是一行一行跟着歌往上走，
+     *   而不是每次跳一大段。
+     * - 用户自己拖过列表时，锚点跟着当前歌的实际位置走，不硬拽他。
      */
     private void scrollListToCurrent(long songId) {
         if (listMode != LIST_SONGS || songList == null || adapter == null) return;
@@ -1707,15 +1763,33 @@ public class MainActivity extends Activity implements Player.Listener {
         }
         if (at < 0 || at >= adapter.getCount()) return;
         final int target = at;
-        final int rowH = dp(72);
+        // 必须等这一帧布局跑完再滚，否则 notifyDataSetChanged 的重排会把滚动位置吃掉
         songList.post(new Runnable() {
             @Override public void run() {
                 int h = songList.getHeight();
                 if (h <= 0) return;
-                // 中间那行：上面留 (高 - 行高)/2；头部留白就是这段距离，
-                // 所以直接把留白高度当 offset，行首正好落在正中
-                int offset = Math.max(0, (h - rowH) / 2);
-                songList.setSelectionFromTop(target + songList.getHeaderViewsCount(), offset);
+                int top = rowTopOnScreen(target);
+                // 刚被裁掉一两像素也算看得见，别为这个就跳
+                boolean visible = top > -dp(72) && top < h - dp(8);
+
+                if (!anchorValid) {
+                    // 这个列表第一次定位：歌在眼前就原地不动（别跳），
+                    // 不在眼前就滚到列表顶端开始往下看 —— 都不是居中
+                    if (visible) {
+                        playAnchorPx = top;
+                    } else {
+                        playAnchorPx = 0;
+                        scrollRowTo(target, 0);
+                    }
+                    anchorValid = true;
+                    return;
+                }
+
+                if (top == playAnchorPx) return;         // 已经在槽位上，别白滚
+                // 用户刚拖过列表：这会儿别硬拽，让他先看完
+                if (!visible && SystemClock.uptimeMillis() - lastUserScrollAt < 4000) return;
+
+                scrollRowTo(target, playAnchorPx);
             }
         });
     }
