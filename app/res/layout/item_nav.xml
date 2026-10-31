@@ -2,7 +2,13 @@
 <!-- 左栏入口：56dp 高、圆角 10dp、1dp 描边（背景/配色由代码按选中态切）
 
      图标一律用 ImageView + 位图：TextView 的 compoundDrawable 在文字为空时是贴左边画的，
-     折叠成 56dp 图标栏后会跟居中的字符图标错位，看着就是「歪的」。 -->
+     折叠成 56dp 图标栏后会跟居中的字符图标错位，看着就是「歪的」。
+
+     副标题整列去掉了（车主：菜单下面的小字影响协调性）。
+     原来只有「每日推荐」「心动模式」「我的歌单」有小字，私人 FM / 搜索没有，
+     有的小字缺失导致整列基线不齐，看着就是「不协调」；
+     而且这些小字（每天 6:00 更新 / 按当前歌找相似 / 已同步）价值不高，
+     未登录这类真状态在中间列表头已经写明了。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="56dp"
@@ -21,30 +27,13 @@
         android:scaleType="fitCenter"
         android:contentDescription="入口图标" />
 
-    <LinearLayout
-        android:id="@+id/nav_texts"
+    <TextView
+        android:id="@+id/nav_title"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/nav_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="#DDE4EE"
-            android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/nav_sub"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textColor="#7D8896"
-            android:textSize="13sp" />
-    </LinearLayout>
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="#DDE4EE"
+        android:textSize="20sp" />
 </LinearLayout>

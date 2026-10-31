@@ -80,9 +80,6 @@ public class MainActivity extends Activity implements Player.Listener {
             R.drawable.ic_nav_list, R.drawable.ic_nav_fm, R.drawable.ic_nav_search};
     private static final String[] NAV_TITLES = {"每日推荐", "心动模式", "我的歌单",
             "私人 FM", "搜索"};
-    // 副标题只放固定提示，不放「N 首」这种数字（车主：直接写名字就行）
-    private static final String[] NAV_SUBS = {"每天 6:00 更新", "按当前歌找相似",
-            "已同步", "", ""};
 
     /* ---------------- 中栏列表类型 ---------------- */
     private static final int LIST_SONGS = 0;
@@ -99,7 +96,6 @@ public class MainActivity extends Activity implements Player.Listener {
     // 左栏
     private final View[] navItems = new View[NAV_COUNT];
     private final TextView[] navTitles = new TextView[NAV_COUNT];
-    private final TextView[] navSubs = new TextView[NAV_COUNT];
     private final ImageView[] navIcons = new ImageView[NAV_COUNT];
     private int navSelected = -1;
     /** 左栏折叠：图标栏模式（56dp），中间列表和右侧播放器分走腾出来的宽度 */
@@ -434,10 +430,7 @@ public class MainActivity extends Activity implements Player.Listener {
             navIcons[i] = (ImageView) item.findViewById(R.id.nav_icon);
             navIcons[i].setImageResource(NAV_DRAW[i]);
             navTitles[i] = (TextView) item.findViewById(R.id.nav_title);
-            navSubs[i] = (TextView) item.findViewById(R.id.nav_sub);
             navTitles[i].setText(NAV_TITLES[i]);
-            navSubs[i].setText(NAV_SUBS[i]);
-            if (NAV_SUBS[i].length() == 0) navSubs[i].setVisibility(View.GONE);
             final int idx = i;
             item.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { onNavClick(idx); }
@@ -511,8 +504,10 @@ public class MainActivity extends Activity implements Player.Listener {
         for (int i = 0; i < NAV_COUNT; i++) {
             View item = navItems[i];
             if (item == null) continue;
-            View texts = item.findViewById(R.id.nav_texts);
-            if (texts != null) texts.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+            // 副标题已去掉，展开态只留一行标题；折叠态把标题也藏了，只剩图标
+            if (navTitles[i] != null) {
+                navTitles[i].setVisibility(collapsed ? View.GONE : View.VISIBLE);
+            }
             item.setPadding(pad, 0, pad, 0);
             ImageView icon = navIcons[i];
             if (icon != null) {
@@ -561,7 +556,6 @@ public class MainActivity extends Activity implements Player.Listener {
                 }
             }
             navTitles[i].setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
-            navSubs[i].setTextColor(on ? C_SUB_ON : C_MUTED);
         }
     }
 
@@ -796,19 +790,20 @@ public class MainActivity extends Activity implements Player.Listener {
         }).start();
     }
 
-    /** 只为了把「我的歌单」副标题从「同步中…」填上数字，不切列表、不渲染。 */
+    /**
+     * 后台预取一次歌单存进缓存：点进「我的歌单」时直接出列表，不用等网络。
+     * （原来是为了填左栏副标题的数字，副标题去掉后改成纯预热缓存。）
+     */
     private void prefetchPlaylistCount() {
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    final int n = ApiClient.userPlaylists(MainActivity.this, 100).size();
+                    final List<Playlist> pls = ApiClient.userPlaylists(MainActivity.this, 100);
                     main.post(new Runnable() {
                         @Override public void run() {
-                            if (navSubs[NAV_PLAYLIST] != null
-                                    && !"未登录".equals(navSubs[NAV_PLAYLIST].getText().toString())) {
-                                setNavSub(NAV_PLAYLIST, "已同步");
-                            }
+                            if (cachedPlaylists != null) return;   // 已经有更新的缓存了就不覆盖
+                            rememberPlaylists(pls);
                         }
                     });
                 } catch (Exception e) {
@@ -845,7 +840,6 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            setNavSub(NAV_PLAYLIST, "未登录");
                             setHeader("我的歌单", "未登录");
                             adapter.clear();
                             showHint(MSG_LOGIN);
@@ -908,7 +902,6 @@ public class MainActivity extends Activity implements Player.Listener {
     private void rememberPlaylists(List<Playlist> pls) {
         cachedPlaylists = new ArrayList<Playlist>(pls);
         cachedPlaylistsAt = System.currentTimeMillis();
-        setNavSub(NAV_PLAYLIST, "已同步");
     }
 
     private void showSongs(String title, String info, List<Song> songs) {
@@ -1352,11 +1345,7 @@ public class MainActivity extends Activity implements Player.Listener {
     private void applyLikedUi() {
         if (adapter != null) adapter.notifyDataSetChanged();
         updateBottomHeart();
-        refreshLikeSub();
     }
-
-    /** 「红心歌曲」入口已删，这里没副标题要刷了；留着调用点免得散落改动 */
-    private void refreshLikeSub() { }
 
     private void updateBottomHeart() {
         Song s = (player == null) ? null : player.getCurrent();
@@ -1875,13 +1864,6 @@ public class MainActivity extends Activity implements Player.Listener {
         headerSeq++;
         listTitle.setText(title);
         listInfo.setText(info);
-    }
-
-    private void setNavSub(int idx, String text) {
-        if (idx < 0 || idx >= NAV_COUNT || navSubs[idx] == null) return;
-        navSubs[idx].setText(text);
-        navSubs[idx].setVisibility(text != null && text.length() > 0
-                ? View.VISIBLE : View.GONE);
     }
 
     private void showHint(String msg) {
