@@ -178,21 +178,11 @@
             android:paddingTop="14dp"
             android:paddingBottom="14dp">
 
-            <TextView
-                android:id="@+id/tag_info"
-                android:layout_width="match_parent"
-                android:layout_height="17dp"
-                android:gravity="center_vertical"
-                android:singleLine="true"
-                android:textColor="#7FA9FF"
-                android:textSize="13sp" />
-
             <ImageView
                 android:id="@+id/cover"
                 android:layout_width="match_parent"
-                android:layout_height="206dp"
-                android:layout_marginTop="6dp"
-                android:layout_marginBottom="12dp"
+                android:layout_height="132dp"
+                android:layout_marginBottom="8dp"
                 android:scaleType="centerInside"
                 android:contentDescription="封面"
                 android:src="@drawable/cover_placeholder" />
@@ -201,7 +191,7 @@
                 android:id="@+id/now_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:maxLines="1"
+                android:maxLines="2"
                 android:ellipsize="end"
                 android:text="未在播放"
                 android:textColor="#FFFFFF"
@@ -213,27 +203,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:maxLines="1"
+                android:maxLines="2"
                 android:ellipsize="end"
                 android:text=""
                 android:textColor="#A9B4C4"
-                android:textSize="15sp" />
-
-            <TextView
-                android:id="@+id/now_album"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:text=""
-                android:textColor="#7D8896"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
 
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="10dp"
                 android:background="#1E2530" />
 
             <!-- 歌词区：点它（或点封面）切换封面显隐 -->
@@ -249,10 +228,11 @@
                     android:id="@+id/lyric_view"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:lineSpacingMultiplier="1.55"
+                    android:lineSpacingMultiplier="1.45"
+                    android:paddingBottom="12dp"
                     android:text=""
                     android:textColor="#7D8896"
-                    android:textSize="16sp" />
+                    android:textSize="17sp" />
             </ScrollView>
         </LinearLayout>
     </LinearLayout>
@@ -307,7 +287,7 @@
             android:textColor="#3A4554"
             android:textSize="30sp" />
 
-        <!-- 进度区：当前时间 48 + SeekBar(flex) + 总时长 48 -->
+        <!-- 进度区：只留 SeekBar（时间文字已按车主要求去掉） -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -315,25 +295,15 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingLeft="20dp"
-            android:paddingRight="4dp">
-
-            <TextView
-                android:id="@+id/time_position"
-                android:layout_width="48dp"
-                android:layout_height="wrap_content"
-                android:gravity="left|center_vertical"
-                android:singleLine="true"
-                android:text="00:00"
-                android:textColor="#7D8896"
-                android:textSize="15sp" />
+            android:paddingRight="8dp">
 
             <SeekBar
                 android:id="@+id/seek"
                 android:layout_width="0dp"
                 android:layout_height="32dp"
                 android:layout_weight="1"
-                android:layout_marginLeft="12dp"
-                android:layout_marginRight="12dp"
+                android:layout_marginLeft="4dp"
+                android:layout_marginRight="4dp"
                 android:max="1000"
                 android:paddingTop="8dp"
                 android:paddingBottom="8dp"
@@ -342,15 +312,6 @@
                 android:progressDrawable="@drawable/seek_progress"
                 android:thumb="@drawable/seek_thumb" />
 
-            <TextView
-                android:id="@+id/time_duration"
-                android:layout_width="48dp"
-                android:layout_height="wrap_content"
-                android:gravity="right|center_vertical"
-                android:singleLine="true"
-                android:text="00:00"
-                android:textColor="#7D8896"
-                android:textSize="15sp" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

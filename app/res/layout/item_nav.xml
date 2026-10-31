@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 左栏入口：78dp 高、圆角 10dp、1dp 描边（背景/配色由代码按选中态切） -->
+<!-- 左栏入口：56dp 高、圆角 10dp、1dp 描边（背景/配色由代码按选中态切）
+
+     图标一律用 ImageView + 位图：TextView 的 compoundDrawable 在文字为空时是贴左边画的，
+     折叠成 56dp 图标栏后会跟居中的字符图标错位，看着就是「歪的」。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="56dp"
@@ -10,20 +13,19 @@
     android:paddingRight="13dp"
     android:background="@drawable/nav_item_normal">
 
-    <TextView
+    <ImageView
         android:id="@+id/nav_icon"
-        android:layout_width="32dp"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:textColor="#DDE4EE"
-        android:textSize="23sp" />
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_marginRight="9dp"
+        android:scaleType="fitCenter"
+        android:contentDescription="入口图标" />
 
     <LinearLayout
         android:id="@+id/nav_texts"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginLeft="9dp"
         android:orientation="vertical">
 
         <TextView

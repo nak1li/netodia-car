@@ -72,14 +72,16 @@ public class MainActivity extends Activity implements Player.Listener {
     private static final int NAV_FM = 5;      // 私人 FM
     private static final int NAV_COUNT = 6;
 
-    // 空串表示该入口用位图图标（4.4 字体没有这些字形）
-    private static final String[] NAV_ICONS = {"☀", "♥", "", "≡", "", ""};
-    private static final int[] NAV_DRAW = {0, 0, R.drawable.ic_heart_mode, 0,
-            R.drawable.ic_search, R.drawable.ic_fm};
+    // 全部位图：TextView 的字符图标（☀ ♥ ≡）在 4.4 里基线跟位图对不齐，
+    // 折叠成图标栏后一列图标高低不齐，看着就是「歪的」。
+    private static final int[] NAV_DRAW = {R.drawable.ic_nav_daily, R.drawable.ic_nav_like,
+            R.drawable.ic_nav_heartmode, R.drawable.ic_nav_list,
+            R.drawable.ic_nav_search, R.drawable.ic_nav_fm};
     private static final String[] NAV_TITLES = {"每日推荐", "红心歌曲", "心动模式", "我的歌单",
             "搜索", "私人 FM"};
-    private static final String[] NAV_SUBS = {"每天 6:00 更新", "同步中…", "按当前歌找相似",
-            "同步中…", "", "猜你喜欢"};
+    // 副标题只放固定提示，不放「N 首」这种数字（车主：直接写名字就行）
+    private static final String[] NAV_SUBS = {"每天 6:00 更新", "已同步", "按当前歌找相似",
+            "已同步", "", ""};
 
     /* ---------------- 中栏列表类型 ---------------- */
     private static final int LIST_SONGS = 0;
@@ -97,7 +99,7 @@ public class MainActivity extends Activity implements Player.Listener {
     private final View[] navItems = new View[NAV_COUNT];
     private final TextView[] navTitles = new TextView[NAV_COUNT];
     private final TextView[] navSubs = new TextView[NAV_COUNT];
-    private final TextView[] navIcons = new TextView[NAV_COUNT];
+    private final ImageView[] navIcons = new ImageView[NAV_COUNT];
     private int navSelected = -1;
     /** 左栏折叠：图标栏模式（56dp），中间列表和右侧播放器分走腾出来的宽度 */
     private boolean navCollapsed = false;
@@ -116,13 +118,13 @@ public class MainActivity extends Activity implements Player.Listener {
     private RowAdapter adapter;
 
     // 右栏
-    private TextView tagInfo, nowTitle, nowArtist, nowAlbum, lyricView;
+    private TextView nowTitle, nowArtist, lyricView;
     private ImageView cover;
     private ScrollView lyricScroll;
 
     // 底栏
     private ImageView btnPrev, btnPlay, btnNext;
-    private TextView btnLike, tvPosition, tvDuration;
+    private TextView btnLike;
     private SeekBar seek;
     private boolean userSeeking = false;
     /** 拖动松手后等 MediaPlayer 真正 seek 到位，期间别让进度回调把滑块抢回去 */
@@ -264,6 +266,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 h.sub = (TextView) v.findViewById(R.id.row_sub);
                 h.cached = (TextView) v.findViewById(R.id.row_cached);
                 h.heart = (TextView) v.findViewById(R.id.row_heart);
+                h.playing = (ImageView) v.findViewById(R.id.row_playing);
                 v.setTag(h);
                 // 红心点击区：只切红心，不触发整行（播放）。
                 // 位置放在 tag 里、点击时再查行，避免监听器捕获到过期的 position/歌曲对象。
@@ -284,8 +287,14 @@ public class MainActivity extends Activity implements Player.Listener {
 
             Row r = rows.get(pos);
 
+            // 正在播放的那一行：标题变强调色 + 行首均衡器图标
+            Song cur = player == null ? null : player.getCurrent();
+            boolean playing = r.song != null && cur != null && cur.id == r.songId;
+
             // 每帧都必须重置这三处状态：convertView 会把上一行的样子带过来
             h.title.setText(r.title);
+            h.title.setTextColor(playing ? C_ACCENT : C_TEXT);
+            if (h.playing != null) h.playing.setVisibility(playing ? View.VISIBLE : View.GONE);
             h.sub.setText(r.sub);
             h.sub.setVisibility(r.sub.length() == 0 ? View.GONE : View.VISIBLE);
             h.cached.setVisibility(r.cached && r.heart ? View.VISIBLE : View.GONE);
@@ -305,6 +314,7 @@ public class MainActivity extends Activity implements Player.Listener {
 
     private static final class ViewHolder {
         TextView title, sub, cached, heart;
+        ImageView playing;
     }
 
     /* ==================================================================== */
@@ -332,7 +342,6 @@ public class MainActivity extends Activity implements Player.Listener {
             adapter.clear();
             showHint("连不上服务端。\n可在「设置」里改服务器地址。\n已缓存的歌曲仍可播放。");
             lyricView.setText("");
-            updateTagInfo(null);
             return;
         }
 
@@ -354,13 +363,11 @@ public class MainActivity extends Activity implements Player.Listener {
         songList.setAdapter(adapter);
 
         // 右栏
-        tagInfo = (TextView) findViewById(R.id.tag_info);
         cover = (ImageView) findViewById(R.id.cover);
         lyricScroll = (ScrollView) findViewById(R.id.lyric_scroll);
         lyricView = (TextView) findViewById(R.id.lyric_view);
         nowTitle = (TextView) findViewById(R.id.now_title);
         nowArtist = (TextView) findViewById(R.id.now_artist);
-        nowAlbum = (TextView) findViewById(R.id.now_album);
 
         // 底栏
         btnPrev = (ImageView) findViewById(R.id.btn_prev);
@@ -368,11 +375,8 @@ public class MainActivity extends Activity implements Player.Listener {
         btnNext = (ImageView) findViewById(R.id.btn_next);
         btnLike = (TextView) findViewById(R.id.btn_like);
         seek = (SeekBar) findViewById(R.id.seek);
-        tvPosition = (TextView) findViewById(R.id.time_position);
-        tvDuration = (TextView) findViewById(R.id.time_duration);
 
         updateBottomHeart();
-        updateTagInfo(null);
     }
 
     private void buildNav() {
@@ -380,14 +384,8 @@ public class MainActivity extends Activity implements Player.Listener {
         LayoutInflater inf = getLayoutInflater();
         for (int i = 0; i < NAV_COUNT; i++) {
             View item = inf.inflate(R.layout.item_nav, box, false);
-            navIcons[i] = (TextView) item.findViewById(R.id.nav_icon);
-            if (NAV_ICONS[i].isEmpty()) {
-                // Android 4.4 字体没有这些字形（⌕ ⚙ 心形 收音机），一律用位图
-                navIcons[i].setText("");
-                navIcons[i].setCompoundDrawablesWithIntrinsicBounds(NAV_DRAW[i], 0, 0, 0);
-            } else {
-                navIcons[i].setText(NAV_ICONS[i]);
-            }
+            navIcons[i] = (ImageView) item.findViewById(R.id.nav_icon);
+            navIcons[i].setImageResource(NAV_DRAW[i]);
             navTitles[i] = (TextView) item.findViewById(R.id.nav_title);
             navSubs[i] = (TextView) item.findViewById(R.id.nav_sub);
             navTitles[i].setText(NAV_TITLES[i]);
@@ -468,15 +466,18 @@ public class MainActivity extends Activity implements Player.Listener {
             View texts = item.findViewById(R.id.nav_texts);
             if (texts != null) texts.setVisibility(collapsed ? View.GONE : View.VISIBLE);
             item.setPadding(pad, 0, pad, 0);
-            TextView icon = navIcons[i];
+            ImageView icon = navIcons[i];
             if (icon != null) {
                 android.widget.LinearLayout.LayoutParams lp =
                         (android.widget.LinearLayout.LayoutParams) icon.getLayoutParams();
+                // 折叠时图标占满整列并居中；展开时固定 26dp 靠左
                 lp.width = collapsed ? android.widget.LinearLayout.LayoutParams.MATCH_PARENT
-                                     : dp(32);
+                                     : dp(26);
+                lp.height = dp(26);
+                lp.rightMargin = collapsed ? 0 : dp(9);
                 lp.leftMargin = 0;
                 icon.setLayoutParams(lp);
-                icon.setGravity(android.view.Gravity.CENTER);
+                icon.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
             }
         }
 
@@ -501,13 +502,13 @@ public class MainActivity extends Activity implements Player.Listener {
             navItems[i].setBackgroundResource(
                     on ? R.drawable.nav_item_active : R.drawable.nav_item_normal);
             navTitles[i].setTextColor(on ? C_INK : C_TEXT);
-            if (navIcons[i] != null && NAV_ICONS[i].isEmpty()) {
-                android.graphics.drawable.Drawable ic = navIcons[i].getCompoundDrawables()[0];
+            if (navIcons[i] != null) {
+                android.graphics.drawable.Drawable ic = navIcons[i].getDrawable();
                 if (ic != null) {
                     // mutate()：不加会把颜色改到共享的恒定状态上，影响别处
                     ic = ic.mutate();
                     ic.setColorFilter(on ? C_INK : C_TEXT, PorterDuff.Mode.SRC_IN);
-                    navIcons[i].setCompoundDrawablesWithIntrinsicBounds(ic, null, null, null);
+                    navIcons[i].setImageDrawable(ic);
                 }
             }
             navTitles[i].setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
@@ -561,7 +562,6 @@ public class MainActivity extends Activity implements Player.Listener {
                 int target = sb.getProgress();
                 seekPendingMs = target;
                 seekDeadline = SystemClock.uptimeMillis() + 2500;
-                tvPosition.setText(formatTime(target));
                 player.seekTo(target);
             }
         });
@@ -632,8 +632,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            String info = new SimpleDateFormat("M月d日", Locale.CHINA).format(new Date())
-                                    + " · " + songs.size() + " 首";
+                            String info = new SimpleDateFormat("M月d日", Locale.CHINA).format(new Date());
                             showSongs("每日推荐", info, songs);
                         }
                     });
@@ -686,11 +685,8 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            String info = seedName.length() > 0
-                                    ? "种子：" + seedName + " · " + songs.size() + " 首"
-                                    : songs.size() + " 首";
+                            String info = seedName.length() > 0 ? "种子：" + seedName : "";
                             showSongs("心动模式", info, songs);
-                            setNavSub(NAV_HEART, songs.size() + " 首");
                         }
                     });
                 } catch (final Exception e) {
@@ -723,8 +719,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            showSongs("私人 FM", songs.size() + " 首 · 再点一次换一批", songs);
-                            setNavSub(NAV_FM, "共 " + songs.size() + " 首");
+                            showSongs("私人 FM", "再点一次换一批", songs);
                         }
                     });
                 } catch (final ApiClient.NeedLoginException e) {
@@ -765,8 +760,8 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            setNavSub(NAV_LIKE, songs.size() + " 首");
-                            showSongs("红心歌曲", songs.size() + " 首", songs);
+                            setNavSub(NAV_LIKE, "已同步");
+                            showSongs("红心歌曲", "", songs);
                             // 顺手把 id 缓存刷新一下（5 分钟内不重复请求），保证底栏红心状态准确
                             refreshLikedIds(false);
                         }
@@ -806,7 +801,7 @@ public class MainActivity extends Activity implements Player.Listener {
                         @Override public void run() {
                             if (navSubs[NAV_PLAYLIST] != null
                                     && !"未登录".equals(navSubs[NAV_PLAYLIST].getText().toString())) {
-                                setNavSub(NAV_PLAYLIST, n + " 个歌单");
+                                setNavSub(NAV_PLAYLIST, "已同步");
                             }
                         }
                     });
@@ -880,7 +875,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            showSongs(pl.name, songs.size() + " 首", songs);
+                            showSongs(pl.name, "", songs);
                         }
                     });
                 } catch (final ApiClient.NeedLoginException e) {
@@ -907,7 +902,7 @@ public class MainActivity extends Activity implements Player.Listener {
     private void rememberPlaylists(List<Playlist> pls) {
         cachedPlaylists = new ArrayList<Playlist>(pls);
         cachedPlaylistsAt = System.currentTimeMillis();
-        setNavSub(NAV_PLAYLIST, pls.size() + " 个歌单");
+        setNavSub(NAV_PLAYLIST, "已同步");
     }
 
     private void showSongs(String title, String info, List<Song> songs) {
@@ -938,7 +933,15 @@ public class MainActivity extends Activity implements Player.Listener {
         }
         hideHint();
         adapter.setRows(rows);
-        songList.setSelection(0);
+        // 打开列表就滚到正在播的那首（没有就回顶部）
+        int at = -1;
+        Song cur = player == null ? null : player.getCurrent();
+        if (cur != null) {
+            for (int i = 0; i < songs.size(); i++) {
+                if (songs.get(i).id == cur.id) { at = i; break; }
+            }
+        }
+        songList.setSelection(at >= 0 ? at : 0);
         markCachedAsync(ids, q);
     }
 
@@ -974,7 +977,7 @@ public class MainActivity extends Activity implements Player.Listener {
         currentSongs.clear();
         currentPlaylists.clear();
         currentPlaylists.addAll(pls);
-        setHeader("我的歌单", pls.size() + " 个");
+        setHeader("我的歌单", "");
         if (pls.isEmpty()) {
             adapter.clear();
             showHint("这个账号下还没有歌单");
@@ -985,9 +988,7 @@ public class MainActivity extends Activity implements Player.Listener {
             Playlist p = pls.get(i);
             Row r = new Row();
             r.title = p.name;
-            r.sub = (p.creator == null || p.creator.length() == 0)
-                    ? (p.trackCount + " 首")
-                    : (p.creator + " · " + p.trackCount + " 首");
+            r.sub = (p.creator == null) ? "" : p.creator;
             r.heart = false;
             r.playlist = p;
             rows.add(r);
@@ -1047,7 +1048,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            showSongs("搜索：" + q, songs.size() + " 首", songs);
+                            showSongs("搜索：" + q, "", songs);
                             if (songs.isEmpty()) {
                                 showHint("没有搜到「" + q + "」\n换个歌名或歌手试试");
                             }
@@ -1096,7 +1097,7 @@ public class MainActivity extends Activity implements Player.Listener {
 
     private void showDownloadRows(List<LocalCache.CacheFile> files, long totalSize) {
         listMode = LIST_DOWNLOADS;
-        setHeader("我的下载", files.size() + " 首 · " + (totalSize / 1024 / 1024) + " MB");
+        setHeader("我的下载", (totalSize / 1024 / 1024) + " MB");
         if (files.isEmpty()) {
             adapter.clear();
             showHint("还没有缓存文件\n播放过的歌会自动缓存");
@@ -1187,7 +1188,6 @@ public class MainActivity extends Activity implements Player.Listener {
                         if (q.length() > 0) {
                             AppConfig.setQuality(MainActivity.this, q);
                             player.setQuality(q);
-                            updateTagInfo(player.getCurrent());
                         }
                         // 换了服务器/令牌还沿用旧的红心缓存 → 界面显示上一个账号的状态
                         boolean credChanged = !oldToken.equals(AppConfig.getToken(MainActivity.this))
@@ -1216,7 +1216,6 @@ public class MainActivity extends Activity implements Player.Listener {
                                             for (int k = 0; k < ids.length; k++) ids[k] = currentSongs.get(k).id;
                                             markCachedAsync(ids, AppConfig.getQuality(MainActivity.this));
                                         }
-                                        updateTagInfo(player == null ? null : player.getCurrent());
                                     }
                                 });
                             }
@@ -1247,7 +1246,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 main.post(new Runnable() {
                     @Override public void run() {
                         if (isFinishing()) return;
-                        dlRef.setText("我的下载（" + n + " 首 · " + (total / 1024 / 1024) + " MB）");
+                        dlRef.setText("我的下载（" + (total / 1024 / 1024) + " MB）");
                     }
                 });
             }
@@ -1352,7 +1351,7 @@ public class MainActivity extends Activity implements Player.Listener {
     private void refreshLikeSub() {
         if (Liked.AT <= 0 || navSubs[NAV_LIKE] == null) return;
         if ("未登录".equals(navSubs[NAV_LIKE].getText().toString())) return;
-        setNavSub(NAV_LIKE, Liked.IDS.size() + " 首");
+        setNavSub(NAV_LIKE, "已同步");
     }
 
     private void updateBottomHeart() {
@@ -1427,7 +1426,6 @@ public class MainActivity extends Activity implements Player.Listener {
                             }
                             toast("下载完成");
                             adapter.markCached(s.id, true);
-                            updateTagInfo(player.getCurrent());
                         }
                     });
                 } catch (final Exception e) {
@@ -1575,7 +1573,7 @@ public class MainActivity extends Activity implements Player.Listener {
             int end = sb.length();
             if (end > start) {
                 if (i == cur) {
-                    sb.setSpan(new ForegroundColorSpan(C_TITLE), start, end,
+                    sb.setSpan(new ForegroundColorSpan(C_ACCENT), start, end,
                             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                     sb.setSpan(new StyleSpan(Typeface.BOLD), start, end,
                             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1649,15 +1647,6 @@ public class MainActivity extends Activity implements Player.Listener {
     /* 右栏标签                                                              */
     /* ==================================================================== */
 
-    private void updateTagInfo(Song s) {
-        String q = AppConfig.getQuality(this);
-        StringBuilder sb = new StringBuilder(qualityLabel(q));
-        if (s != null) {
-            sb.append(" · ").append(LocalCache.isCached(s, q, LocalCache.extFor(q)) ? "已缓存" : "在线播放");
-        }
-        tagInfo.setText(sb.toString());
-    }
-
     private static String qualityLabel(String q) {
         if ("standard".equals(q)) return "128K";
         if ("high".equals(q)) return "192K";
@@ -1678,22 +1667,24 @@ public class MainActivity extends Activity implements Player.Listener {
     public void onTrackChanged(Song s, int index) {
         if (s == null) return;
         nowTitle.setText(s.name);
-        nowArtist.setText(s.artist);
-        nowAlbum.setText(s.albumName);
-        updateTagInfo(s);
+        // 歌手 + 专辑挤一行，右栏省下的高度全给歌词
+        String art = s.artist == null ? "" : s.artist.trim();
+        String alb = s.albumName == null ? "" : s.albumName.trim();
+        nowArtist.setText(art.length() == 0 ? alb
+                : (alb.length() == 0 ? art : art + " · " + alb));
 
         // 切歌必须把上一首的进度/时长/拖动状态清干净，否则旧进度条会挂在新歌下面
         userSeeking = false;
         seekPendingMs = -1;
         seek.setProgress(0);
-        tvPosition.setText("00:00");
-        tvDuration.setText(formatTime(s.duration));
         lyricScroll.scrollTo(0, 0);
 
         CoverLoader.load(cover, s.coverUrl, 320);
         updateBottomHeart();
         loadLyrics(s);
         player.prefetchNext();
+        // 列表里「正在播放」的行要跟着换
+        if (adapter != null) adapter.notifyDataSetChanged();
     }
 
     @Override
@@ -1734,8 +1725,6 @@ public class MainActivity extends Activity implements Player.Listener {
             }
             if (!userSeeking) {
                 seek.setProgress(positionMs);
-                tvPosition.setText(formatTime(positionMs));
-                tvDuration.setText(formatTime(durationMs));
             }
         }
         updateLyricCursor(positionMs);

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 列表行 72dp：标题 20sp + 已缓存标记 13sp / 副标题 15sp / 右侧 68dp 红心点击区 -->
+<!-- 列表行 72dp：标题 20sp + 已缓存标记 13sp / 副标题 15sp / 右侧 68dp 红心点击区
+     行首的均衡器小图标表示「这一首正在播」 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="72dp"
@@ -19,6 +20,16 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/row_playing"
+                android:layout_width="15dp"
+                android:layout_height="15dp"
+                android:layout_marginRight="7dp"
+                android:src="@drawable/ic_playing"
+                android:scaleType="fitCenter"
+                android:contentDescription="正在播放"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/row_title"
