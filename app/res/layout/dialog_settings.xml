@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="服务器地址"
+            android:textColor="#9AA6B8"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/set_server"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="52dp"
+            android:textSize="17sp"
+            android:textColor="#FFFFFF"
+            android:inputType="textUri"
+            android:background="@drawable/btn_dark" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="访问令牌"
+            android:textColor="#9AA6B8"
+            android:textSize="14sp"
+            android:paddingTop="10dp" />
+
+        <EditText
+            android:id="@+id/set_token"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="52dp"
+            android:textSize="17sp"
+            android:textColor="#FFFFFF"
+            android:inputType="text"
+            android:background="@drawable/btn_dark" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="本地缓存上限（MB）"
+            android:textColor="#9AA6B8"
+            android:textSize="14sp"
+            android:paddingTop="10dp" />
+
+        <EditText
+            android:id="@+id/set_cache_mb"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="52dp"
+            android:textSize="17sp"
+            android:textColor="#FFFFFF"
+            android:inputType="number"
+            android:background="@drawable/btn_dark" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="音质（点开选择，会员可开无损 / 母带）"
+            android:textColor="#9AA6B8"
+            android:textSize="14sp"
+            android:paddingTop="10dp" />
+
+        <EditText
+            android:id="@+id/set_quality"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="52dp"
+            android:textSize="17sp"
+            android:textColor="#FFFFFF"
+            android:inputType="text"
+            android:background="@drawable/btn_dark" />
+
+        <TextView
+            android:id="@+id/set_downloads"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/nav_item_normal"
+            android:gravity="center_vertical"
+            android:paddingLeft="13dp"
+            android:paddingRight="13dp"
+            android:text="我的下载（已缓存曲目）"
+            android:textColor="#7FA9FF"
+            android:textSize="17sp" />
+    </LinearLayout>
+</ScrollView>

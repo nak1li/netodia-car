@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 左栏入口：78dp 高、圆角 10dp、1dp 描边（背景/配色由代码按选中态切） -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="78dp"
+    android:layout_marginBottom="6dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingLeft="13dp"
+    android:paddingRight="13dp"
+    android:background="@drawable/nav_item_normal">
+
+    <TextView
+        android:id="@+id/nav_icon"
+        android:layout_width="32dp"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textColor="#DDE4EE"
+        android:textSize="23sp" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="9dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/nav_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#DDE4EE"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/nav_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#7D8896"
+            android:textSize="15sp" />
+    </LinearLayout>
+</LinearLayout>

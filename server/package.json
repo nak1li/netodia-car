@@ -1,0 +1,24 @@
+{
+  "name": "ncm-car-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NetEase Cloud Music proxy + audio cache for a car head unit",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test_cache.js",
+    "postinstall": "node tools/patch_netease_api.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@neteasecloudmusicapienhanced/api": "^4.41.1"
+  },
+  "optionalDependencies": {
+    "NeteaseCloudMusicApi": "^4.32.0"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "attribution": [
+    "@neteasecloudmusicapienhanced/api (NeteaseCloudMusicApiEnhanced/api-enhanced) - MIT - https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced",
+    "NeteaseCloudMusicApi v4.32 (Binaryify) - MIT - https://github.com/Binaryify/NeteaseCloudMusicApi"
+  ]
+}

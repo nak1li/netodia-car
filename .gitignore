@@ -1,0 +1,27 @@
+# 构建产物
+app/build/
+app/*.apk
+*.apk
+
+# 构建时生成的密钥与凭据（绝对不能提交）
+app/keys/
+*.keystore
+*.jks
+app/src/com/nakili/ncmcar/Secrets.java
+# 扫码登录的临时二维码（内含有效登录态）
+ncm_login_qr.png
+secrets.ncm/
+
+# 服务端运行时数据
+server/node_modules/
+secrets/
+cache/
+*.cookie
+*.token
+.env
+.env.*
+
+# 编辑器/系统
+.DS_Store
+.idea/
+*.iml

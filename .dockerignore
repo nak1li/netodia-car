@@ -1,0 +1,7 @@
+node_modules/
+app/build/
+app/keys/
+*.apk
+*.keystore
+.git/
+docs/screenshots/*.psd
