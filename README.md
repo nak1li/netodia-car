@@ -14,6 +14,8 @@
 |---|---|
 | ![播放界面](docs/screenshots/player.png) | ![音质](docs/screenshots/quality.png) |
 
+左栏 5 个入口，收起时只留图标（[展开态见这里](docs/screenshots/nav.png)）。
+
 ---
 
 ## 为什么值得看一眼
