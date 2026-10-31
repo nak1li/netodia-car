@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 列表行 72dp：标题 20sp + 已缓存标记 13sp / 副标题 15sp / 右侧 68dp 红心点击区
-     行首留一列 20dp 放「正在播放」的小均衡器图标：
-     这一列宽度对所有行固定（不在播时 INVISIBLE），标题和副标题才对得齐。 -->
+
+     「正在播放」的小均衡器图标挂在**歌名后面**，不占行首那一列 ——
+     行首留白 26dp 太浪费，歌名根本显示不全（车主：放前面很浪费显示画面）。
+     标题仍用 wrap_content + maxWidth，图标紧跟文字；标题超长时 ellipsize 收尾。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="72dp"
@@ -9,16 +11,6 @@
     android:gravity="center_vertical"
     android:paddingLeft="18dp"
     android:background="@drawable/list_row">
-
-    <ImageView
-        android:id="@+id/row_playing"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:layout_marginRight="6dp"
-        android:src="@drawable/ic_playing"
-        android:scaleType="fitCenter"
-        android:contentDescription="正在播放"
-        android:visibility="invisible" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -36,11 +28,22 @@
                 android:id="@+id/row_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:maxWidth="300dp"
+                android:maxWidth="420dp"
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:textColor="#DDE4EE"
                 android:textSize="20sp" />
+
+            <!-- 在播标记：紧跟歌名，不占固定列；不在播时 INVISIBLE 只影响这一个图标本身 -->
+            <ImageView
+                android:id="@+id/row_playing"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginLeft="7dp"
+                android:src="@drawable/ic_playing"
+                android:scaleType="fitCenter"
+                android:contentDescription="正在播放"
+                android:visibility="invisible" />
 
             <TextView
                 android:id="@+id/row_cached"

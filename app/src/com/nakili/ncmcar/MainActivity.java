@@ -65,22 +65,22 @@ public class MainActivity extends Activity implements Player.Listener {
 
     /* ---------------- 左栏入口 ---------------- */
     private static final int NAV_DAILY = 0;
-    private static final int NAV_LIKE = 1;
-    private static final int NAV_HEART = 2;   // 心动模式（以当前歌为种子连播相似）
-    private static final int NAV_PLAYLIST = 3;
-    private static final int NAV_SEARCH = 4;
-    private static final int NAV_FM = 5;      // 私人 FM
-    private static final int NAV_COUNT = 6;
+    private static final int NAV_HEART = 1;   // 心动模式（以当前歌为种子连播相似）
+    private static final int NAV_PLAYLIST = 2;
+    private static final int NAV_FM = 3;      // 私人 FM
+    private static final int NAV_SEARCH = 4;  // 搜索（车主：放最后一个）
+    private static final int NAV_COUNT = 5;
+    // 「红心歌曲」入口已删除（车主：跟「我的歌单」里的「我喜欢的音乐」重叠）。
+    // 红心功能本身都在：行内红心、底栏红心、红心状态同步。
 
     // 全部位图：TextView 的字符图标（☀ ♥ ≡）在 4.4 里基线跟位图对不齐，
     // 折叠成图标栏后一列图标高低不齐，看着就是「歪的」。
-    private static final int[] NAV_DRAW = {R.drawable.ic_nav_daily, R.drawable.ic_nav_like,
-            R.drawable.ic_nav_heartmode, R.drawable.ic_nav_list,
-            R.drawable.ic_nav_search, R.drawable.ic_nav_fm};
-    private static final String[] NAV_TITLES = {"每日推荐", "红心歌曲", "心动模式", "我的歌单",
-            "搜索", "私人 FM"};
+    private static final int[] NAV_DRAW = {R.drawable.ic_nav_daily, R.drawable.ic_nav_heartmode,
+            R.drawable.ic_nav_list, R.drawable.ic_nav_fm, R.drawable.ic_nav_search};
+    private static final String[] NAV_TITLES = {"每日推荐", "心动模式", "我的歌单",
+            "私人 FM", "搜索"};
     // 副标题只放固定提示，不放「N 首」这种数字（车主：直接写名字就行）
-    private static final String[] NAV_SUBS = {"每天 6:00 更新", "已同步", "按当前歌找相似",
+    private static final String[] NAV_SUBS = {"每天 6:00 更新", "按当前歌找相似",
             "已同步", "", ""};
 
     /* ---------------- 中栏列表类型 ---------------- */
@@ -135,6 +135,9 @@ public class MainActivity extends Activity implements Player.Listener {
     private final List<Song> currentSongs = new ArrayList<Song>();
     private final List<Playlist> currentPlaylists = new ArrayList<Playlist>();
     private int listMode = LIST_SONGS;
+    private boolean fmMode = false;           // 当前列表是私人 FM（播完要自动续批）
+    private boolean fmLoading = false;        // 续批进行中，别叠着发请求
+    private boolean queueIsFm = false;        // 当前「播放队列」来自 FM（续批只认这个）
     private volatile int loadSeq = 0;         // 丢弃过期响应（连点左栏时）；后台线程也会读
     private List<Playlist> cachedPlaylists;   // 歌单列表快取，给左栏副标题用
     private long cachedPlaylistsAt = 0;
@@ -208,6 +211,13 @@ public class MainActivity extends Activity implements Player.Listener {
         void setRows(List<Row> data) {
             rows.clear();
             if (data != null) rows.addAll(data);
+            notifyDataSetChanged();
+        }
+
+        /** 私人 FM 自动续批：把新一批追加到列表尾部 */
+        void addRows(List<Row> more) {
+            if (more == null || more.isEmpty()) return;
+            rows.addAll(more);
             notifyDataSetChanged();
         }
 
@@ -294,9 +304,9 @@ public class MainActivity extends Activity implements Player.Listener {
             // 每帧都必须重置这三处状态：convertView 会把上一行的样子带过来
             h.title.setText(r.title);
             h.title.setTextColor(playing ? C_ACCENT : C_TEXT);
-            // 歌曲行：用 INVISIBLE 占位，不用 GONE —— GONE 会让这一行的标题右移，
-            // 同一列表里「在播」和「不在播」的歌名对不齐，看着很毛躁。
-            // 歌单行（没有 song）直接 GONE，歌单名字贴着左边，别空一截。
+            // 在播标记挂在歌名后面：不占固定列，歌名不会被挤短。
+            // 不在播用 GONE 也行（右边是空白，标题本来就从左边起），
+            // 但留着 INVISIBLE 能让同一行「已缓存」标记位置稳定，不来回跳。
             if (h.playing != null) {
                 h.playing.setVisibility(r.song == null ? View.GONE
                         : (playing ? View.VISIBLE : View.INVISIBLE));
@@ -364,15 +374,8 @@ public class MainActivity extends Activity implements Player.Listener {
         songList = (ListView) findViewById(R.id.song_list);
         listTitle = (TextView) findViewById(R.id.list_title);
         listInfo = (TextView) findViewById(R.id.list_info);
-        // 私人FM 头部写着「再点一次换一批」，这句话必须能点、点了真换一批，
-        // 否则就是骗人的提示。（再点左栏「私人 FM」入口是「收起左栏」，不是换一批）
-        listInfo.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (listMode == LIST_SONGS && "私人 FM".equals(listTitle.getText().toString())) {
-                    loadFm();
-                }
-            }
-        });
+        // 私人 FM 不再「点一下换一批」（车主否掉了）：列表播完自动续下一批，
+        // 由 Player.onQueueEnded() 回调触发，这里不挂点击。
         emptyHint = (TextView) findViewById(R.id.empty_hint);
         adapter = new RowAdapter();
         songList.setAdapter(adapter);
@@ -459,20 +462,21 @@ public class MainActivity extends Activity implements Player.Listener {
         setWeight(playerCol, collapsed ? 328 : 272);
 
         findViewById(R.id.nav_head_title).setVisibility(collapsed ? View.GONE : View.VISIBLE);
-        TextView toggle = (TextView) findViewById(R.id.nav_collapse);
-        toggle.setText(collapsed ? "\u203A" : "\u2039");
-        toggle.setPadding(0, 0, 0, 0);
+        ImageView toggle = (ImageView) findViewById(R.id.nav_collapse);
+        // 位图箭头：折叠态指向右（展 开），展开态指向左（收起）
+        toggle.setRotation(collapsed ? 180f : 0f);
+        toggle.setColorFilter(collapsed ? 0xFFDDE4EE : 0xFF7D8896, PorterDuff.Mode.SRC_IN);
         // 收窄到 56dp（减去左右 8dp 内边距只剩 40dp）后，齿轮+箭头放不下，
         // 箭头会被挤出屏外 → 折叠态只留「展开」箭头，齿轮等展开后再出现
         View gearBtn = findViewById(R.id.nav_gear);
         if (gearBtn != null) gearBtn.setVisibility(collapsed ? View.GONE : View.VISIBLE);
         android.view.ViewGroup.LayoutParams tlp = toggle.getLayoutParams();
-        tlp.width = dp(collapsed ? 40 : 40);
+        tlp.width = dp(40);
+        tlp.height = dp(collapsed ? 34 : 30);
         toggle.setLayoutParams(tlp);
-        toggle.setGravity(android.view.Gravity.CENTER);
-        // 折叠后这是唯一的展开入口，太小太暗不好点
-        toggle.setTextSize(collapsed ? 28 : 22);
-        toggle.setTextColor(collapsed ? 0xFFDDE4EE : 0xFF7D8896);
+        // 折叠后这是唯一的展开入口，稍放大一点好点中
+        toggle.setPadding(dp(collapsed ? 7 : 6), dp(collapsed ? 7 : 6),
+                dp(collapsed ? 7 : 6), dp(collapsed ? 7 : 6));
 
         int pad = dp(collapsed ? 0 : 13);
         for (int i = 0; i < NAV_COUNT; i++) {
@@ -541,7 +545,6 @@ public class MainActivity extends Activity implements Player.Listener {
         // 点一下就弹开等于白收。要看名字用顶上那个 › 箭头。
         switch (idx) {
             case NAV_DAILY: loadDaily(); break;
-            case NAV_LIKE: loadLiked(); break;
             case NAV_PLAYLIST: loadMyPlaylists(); break;
             case NAV_SEARCH: showSearchDialog(); break;
             case NAV_HEART: loadHeartbeat(); break;
@@ -601,6 +604,7 @@ public class MainActivity extends Activity implements Player.Listener {
                 }
                 if (listMode == LIST_SONGS && r.song != null) {
                     player.setQuality(AppConfig.getQuality(MainActivity.this));
+                    queueIsFm = fmMode;
                     player.setQueue(currentSongs, pos);
                     player.playCurrent();
                     return;
@@ -735,7 +739,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (seq != loadSeq) return;
-                            showSongs("私人 FM", "再点一次换一批", songs);
+                            showSongs("私人 FM", "", songs);
                         }
                     });
                 } catch (final ApiClient.NeedLoginException e) {
@@ -752,51 +756,6 @@ public class MainActivity extends Activity implements Player.Listener {
                         @Override public void run() {
                             if (seq != loadSeq) return;
                             setHeader("私人 FM", "加载失败");
-                            adapter.clear();
-                            showHint("拉取失败：" + msgOf(e));
-                        }
-                    });
-                }
-            }
-        }).start();
-    }
-
-    private void loadLiked() {
-        setNavSelected(NAV_LIKE);
-        final int seq = ++loadSeq;
-        listMode = LIST_SONGS;
-        setHeader("红心歌曲", "");
-        adapter.clear();
-        showHint("正在加载…");
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    final List<Song> songs = ApiClient.likelistSongs(MainActivity.this, 200);
-                    main.post(new Runnable() {
-                        @Override public void run() {
-                            if (seq != loadSeq) return;
-                            setNavSub(NAV_LIKE, "已同步");
-                            showSongs("红心歌曲", "", songs);
-                            // 顺手把 id 缓存刷新一下（5 分钟内不重复请求），保证底栏红心状态准确
-                            refreshLikedIds(false);
-                        }
-                    });
-                } catch (final ApiClient.NeedLoginException e) {
-                    main.post(new Runnable() {
-                        @Override public void run() {
-                            if (seq != loadSeq) return;
-                            setNavSub(NAV_LIKE, "未登录");
-                            setHeader("红心歌曲", "未登录");
-                            adapter.clear();
-                            showHint(MSG_LOGIN);
-                        }
-                    });
-                } catch (final Exception e) {
-                    main.post(new Runnable() {
-                        @Override public void run() {
-                            if (seq != loadSeq) return;
-                            setHeader("红心歌曲", "加载失败");
                             adapter.clear();
                             showHint("拉取失败：" + msgOf(e));
                         }
@@ -923,6 +882,7 @@ public class MainActivity extends Activity implements Player.Listener {
 
     private void showSongs(String title, String info, List<Song> songs) {
         listMode = LIST_SONGS;
+        fmMode = "私人 FM".equals(title);
         currentSongs.clear();
         currentSongs.addAll(songs);
         currentPlaylists.clear();
@@ -1294,14 +1254,13 @@ public class MainActivity extends Activity implements Player.Listener {
                     main.post(new Runnable() {
                         @Override public void run() {
                             Liked.markEmpty();
-                            setNavSub(NAV_LIKE, "未登录");
                             applyLikedUi();
                         }
                     });
                 } catch (final Exception e) {
                     main.post(new Runnable() {
                         @Override public void run() {
-                            setNavSub(NAV_LIKE, "红心状态未知");
+                            // 没有「红心歌曲」入口了，状态异常就不打扰用户
                         }
                     });
                 }
@@ -1363,12 +1322,8 @@ public class MainActivity extends Activity implements Player.Listener {
         refreshLikeSub();
     }
 
-    /** 左栏「红心歌曲」副标题显示曲目数；未登录时保留「未登录」 */
-    private void refreshLikeSub() {
-        if (Liked.AT <= 0 || navSubs[NAV_LIKE] == null) return;
-        if ("未登录".equals(navSubs[NAV_LIKE].getText().toString())) return;
-        setNavSub(NAV_LIKE, "已同步");
-    }
+    /** 「红心歌曲」入口已删，这里没副标题要刷了；留着调用点免得散落改动 */
+    private void refreshLikeSub() { }
 
     private void updateBottomHeart() {
         Song s = (player == null) ? null : player.getCurrent();
@@ -1692,6 +1647,7 @@ public class MainActivity extends Activity implements Player.Listener {
         // 切歌必须把上一首的进度/时长/拖动状态清干净，否则旧进度条会挂在新歌下面
         userSeeking = false;
         seekPendingMs = -1;
+        if (s.duration > 0) seek.setMax(s.duration);
         seek.setProgress(0);
         lyricScroll.scrollTo(0, 0);
 
@@ -1701,6 +1657,33 @@ public class MainActivity extends Activity implements Player.Listener {
         player.prefetchNext();
         // 列表里「正在播放」的行要跟着换
         if (adapter != null) adapter.notifyDataSetChanged();
+        // 列表跟着当前播放的歌滚动（车主：切歌后要能看见正在播哪首）
+        scrollListToCurrent(s.id);
+    }
+
+    /**
+     * 把中栏列表滚到正在播的那首。
+     * 已经看得见就不动 —— 否则用户滑着看列表，一换歌就被拽回去，很难受。
+     */
+    private void scrollListToCurrent(long songId) {
+        if (listMode != LIST_SONGS || songList == null || adapter == null) return;
+        int at = -1;
+        for (int i = 0; i < currentSongs.size(); i++) {
+            if (currentSongs.get(i).id == songId) { at = i; break; }
+        }
+        if (at < 0 || at >= adapter.getCount()) return;
+        int first = songList.getFirstVisiblePosition();
+        int last = songList.getLastVisiblePosition();
+        if (at >= first && at <= last) return;     // 已经露出来，别抖
+        // 放到中间偏上，前后都能看到一点上下文
+        final int target = at;
+        final int offset = Math.max(0, (songList.getHeight() - dp(72)) / 3);
+        // 必须等这一帧的布局跑完再滚，否则 notifyDataSetChanged 的重排会把滚动位置吃掉
+        songList.post(new Runnable() {
+            @Override public void run() {
+                songList.setSelectionFromTop(target, offset);
+            }
+        });
     }
 
     @Override
@@ -1755,6 +1738,88 @@ public class MainActivity extends Activity implements Player.Listener {
     @Override
     public void onQueueChanged() {
         updateBottomHeart();
+    }
+
+    /**
+     * 私人 FM 播到列表末尾：自动拉下一批接上，不需要用户点。
+     * 返回 true 让 Player 别停（保持在 BUFFERING，等新曲目到了直接播）。
+     */
+    @Override
+    public boolean onQueueEnded() {
+        if (!queueIsFm) return false;
+        if (fmLoading) return true;          // 上一批还在路上，先顶住别停
+        fmLoading = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<Song> more = null;
+                String err = null;
+                try {
+                    more = ApiClient.personalFm(MainActivity.this);
+                } catch (Exception e) {
+                    err = msgOf(e);
+                }
+                final List<Song> got = more;
+                final String e2 = err;
+                main.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        fmLoading = false;
+                        if (!queueIsFm) return;
+                        if (got == null || got.isEmpty()) {
+                            toast("FM 续播失败" + (e2 == null ? "" : "：" + e2));
+                            player.stop();
+                            return;
+                        }
+                        appendFmBatch(got);
+                    }
+                });
+            }
+        }).start();
+        return true;
+    }
+
+    /** 把新一批 FM 曲目接到队列尾部，然后从这一批的第一首开始播 */
+    private void appendFmBatch(List<Song> more) {
+        // 去重：FM 接口偶尔会把刚播过的又发回来
+        List<Song> fresh = new ArrayList<Song>();
+        for (int i = 0; i < more.size(); i++) {
+            Song s = more.get(i);
+            boolean dup = false;
+            for (int k = 0; k < currentSongs.size(); k++) {
+                if (currentSongs.get(k).id == s.id) { dup = true; break; }
+            }
+            if (!dup) fresh.add(s);
+        }
+        if (fresh.isEmpty()) {
+            toast("FM 没有新歌了");
+            player.stop();
+            return;
+        }
+        int at = player.getQueue().size();
+        player.addToQueue(fresh);
+        if (fmMode) {                        // 列表还停在 FM 页才更新中栏
+            currentSongs.addAll(fresh);
+            adapter.addRows(buildRows(fresh));
+        }
+        player.playIndex(at);
+    }
+
+    /** Song → 列表行（showSongs 与 FM 续批共用） */
+    private List<Row> buildRows(List<Song> songs) {
+        List<Row> rows = new ArrayList<Row>(songs.size());
+        for (int i = 0; i < songs.size(); i++) {
+            Song s = songs.get(i);
+            Row r = new Row();
+            r.title = s.name;
+            r.sub = s.artist;
+            r.heart = true;
+            r.songId = s.id;
+            r.song = s;
+            r.cached = false;
+            rows.add(r);
+        }
+        return rows;
     }
 
     /* ==================================================================== */

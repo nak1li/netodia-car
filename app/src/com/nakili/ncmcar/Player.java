@@ -36,6 +36,11 @@ public class Player {
         void onProgress(int positionMs, int durationMs);
         void onError(String msg);
         void onQueueChanged();
+        /**
+         * 队列播到底了。返回 true = 上层会追加曲目并接着播（私人 FM 自动续批），
+         * 这里就不要停；返回 false = 就地停住。
+         */
+        boolean onQueueEnded();
     }
 
     public static final int STATE_IDLE = 0;
@@ -138,6 +143,12 @@ public class Player {
                 try {
                     int pos = p.getCurrentPosition();
                     int dur = p.getDuration();
+                    // 流式播放时 MediaPlayer 常常给 0（上游没带 Content-Length），
+                    // 用接口里的歌曲时长兜底，否则进度条永远是空的、拖动也没意义
+                    if (dur <= 0) {
+                        Song cs = getCurrent();
+                        if (cs != null) dur = cs.duration;
+                    }
                     if (listener != null) listener.onProgress(pos, dur);
                 } catch (Exception e) { }
             }
@@ -274,8 +285,13 @@ public class Player {
     }
 
     public void next() {
-        if (index + 1 < queue.size()) playIndex(index + 1);
-        else nextRepeat();
+        if (index + 1 < queue.size()) { playIndex(index + 1); return; }
+        // 到底了：先问上层要不要续（私人 FM 会自动拉下一批），要续就保持 BUFFERING
+        if (listener != null && listener.onQueueEnded()) {
+            setState(STATE_BUFFERING);
+            return;
+        }
+        nextRepeat();
     }
 
     public void prev() {

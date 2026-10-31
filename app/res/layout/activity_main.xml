@@ -58,16 +58,18 @@
                     android:src="@drawable/ic_gear"
                     android:contentDescription="设置" />
 
-                <!-- 触摸区给足，车里好点 -->
-                <TextView
+                <!-- 触摸区给足，车里好点。
+                     箭头用位图：4.4 里 22sp/28sp 的 ‹ › 塞进 26dp 高的 TextView 会被
+                     上下裁切，只剩顶部一小段弧，看着就像「每日推荐图标上面多了个点」。 -->
+                <ImageView
                     android:id="@+id/nav_collapse"
                     android:layout_width="40dp"
-                    android:layout_height="26dp"
-                    android:gravity="center"
-                    android:text="&#8249;"
-                    android:textColor="#7D8896"
-                    android:textSize="22sp"
-                    android:background="@android:color/transparent" />
+                    android:layout_height="30dp"
+                    android:padding="6dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_chevron"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="折叠左栏" />
             </LinearLayout>
 
             <!-- 6 个入口由代码 inflate item_nav.xml 填进来（选中态要逐项改色）：

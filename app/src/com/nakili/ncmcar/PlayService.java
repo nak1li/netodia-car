@@ -1,29 +1,31 @@
 package com.nakili.ncmcar;
 
-import android.app.Notification;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.widget.RemoteViews;
 
 /**
- * 后台播放的前台服务。
+ * 后台播放服务。
  *
- * 为什么必须有：车机场景下用户切到导航（DiPlay / 高德）时音乐要接着放。
+ * 为什么要有：车机场景下用户切到导航（DiPlay / 高德）时音乐要接着放。
  * 只有 Activity 的话，进程一进后台就是 cached 状态，车机内存紧张时被系统
- * 直接收掉，歌就断了。前台服务把进程提到 fg-service 优先级，并在通知栏
- * 给出歌名 + 上一首/播放暂停/下一首。
+ * 直接收掉，歌就断了。
  *
- * 不在这里持有 Player 引用：Player 是进程级单例，服务只负责
- * 1) 把进程钉住 2) 轮询状态刷新通知 3) 接收通知按钮的动作。
+ * 为什么**不**用 startForeground：车主明确要求「车机的下拉菜单里面不要显示
+ * 音乐软件的播放状态」。Android 4.4 上前台服务必须挂一条通知，且没法隐藏
+ * （VISIBILITY_SECRET 是 API 21 才有的），所以只能退回到普通的 started
+ * service —— 不给通知，下拉里干干净净。
+ *
+ * 代价与兜底：没有 fg-service 优先级，进程只是普通后台服务 + 正在出声
+ * （MediaPlayer 持音频焦点时进程本身是 perceptible，被杀的概率不高）。
+ * 服务这里额外做两件事：
+ *  1) START_STICKY，被回收后系统会尝试重建；
+ *  2) 持一个 PARTIAL_WAKE_LOCK，免得息屏/低电时被挂起断音。
  */
 public class PlayService extends Service {
-
-    private static final int NOTIF_ID = 1001;
 
     static final String A_TOGGLE = "com.nakili.ncmcar.action.TOGGLE";
     static final String A_NEXT = "com.nakili.ncmcar.action.NEXT";
@@ -31,9 +33,8 @@ public class PlayService extends Service {
     static final String A_STOP = "com.nakili.ncmcar.action.STOP";
 
     private final Handler main = new Handler(Looper.getMainLooper());
-    private boolean foreground = false;
-    private String lastSig = "";
     private int idleTicks = 0;
+    private android.os.PowerManager.WakeLock wake;
 
     /** 播放要开始时调一下，保证服务在跑 */
     public static void ensure(Context c) {
@@ -57,108 +58,59 @@ public class PlayService extends Service {
         else if (A_PREV.equals(action)) p.prev();
         else if (A_STOP.equals(action)) {
             p.stop();
-            // 光 stopSelf 不会撤掉前台通知（它是 startForeground 挂上去的），
-            // 必须显式 stopForeground(true) + cancel，否则通知永远留在通知栏
-            main.removeCallbacks(tick);
-            try { stopForeground(true); } catch (Exception e) { }
-            try {
-                ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE))
-                        .cancel(NOTIF_ID);
-            } catch (Exception e) { }
             stopSelf();
             return START_NOT_STICKY;
         }
 
-        startForegroundSafely(buildNotification(p));
+        acquireWake();
         main.removeCallbacks(tick);
         main.post(tick);
         return START_STICKY;
+    }
+
+    /** 出声期间别让系统把进程挂起；一停就放掉，不白耗电 */
+    private void acquireWake() {
+        try {
+            if (wake == null) {
+                android.os.PowerManager pm =
+                        (android.os.PowerManager) getSystemService(POWER_SERVICE);
+                wake = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                        "ncmcar:play");
+                wake.setReferenceCounted(false);
+            }
+            if (!wake.isHeld()) wake.acquire(60 * 60 * 1000L);   // 1 小时封顶
+        } catch (Exception e) { }
+    }
+
+    private void releaseWake() {
+        try {
+            if (wake != null && wake.isHeld()) wake.release();
+        } catch (Exception e) { }
     }
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             Player p = Player.get(PlayService.this);
             Song s = p.getCurrent();
-            if (s == null) {
-                if (++idleTicks >= 5) {         // 5 秒没有曲目就退出，别留个空通知
-                    stopForeground(true);
-                    foreground = false;
-                    stopSelf();
-                    return;
-                }
-            } else if (p.getState() == Player.STATE_IDLE) {
-                // 播完了（或用户点了停止）：别让前台服务和不可清除通知一直挂着
-                if (++idleTicks >= 3) {
-                    stopForeground(true);
-                    foreground = false;
+            boolean alive = s != null && p.getState() != Player.STATE_IDLE;
+            if (!alive) {
+                if (++idleTicks >= 5) {      // 5 秒没有在放就退出，别留个空服务
+                    releaseWake();
                     stopSelf();
                     return;
                 }
             } else {
                 idleTicks = 0;
-                String sig = s.id + "|" + p.getState();
-                if (!sig.equals(lastSig)) {
-                    lastSig = sig;
-                    Notification n = buildNotification(p);
-                    if (foreground) {
-                        try { ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE))
-                                .notify(NOTIF_ID, n); } catch (Exception e) { }
-                    } else {
-                        startForegroundSafely(n);
-                    }
-                }
+                acquireWake();
             }
             main.postDelayed(this, 1000);
         }
     };
 
-    private void startForegroundSafely(Notification n) {
-        try {
-            startForeground(NOTIF_ID, n);
-            foreground = true;
-        } catch (Exception e) { }
-    }
-
-    @SuppressWarnings("deprecation")
-    private Notification buildNotification(Player p) {
-        Song s = p.getCurrent();
-        boolean playing = p.getState() == Player.STATE_PLAYING;
-
-        RemoteViews v = new RemoteViews(getPackageName(), R.layout.notif_player);
-        v.setTextViewText(R.id.n_title, s == null ? "未在播放" : s.name);
-        v.setTextViewText(R.id.n_sub, s == null ? "" : (s.artist == null ? "" : s.artist));
-        v.setImageViewResource(R.id.n_play, playing ? R.drawable.ic_pause : R.drawable.ic_play);
-        v.setOnClickPendingIntent(R.id.n_prev, pi(A_PREV));
-        v.setOnClickPendingIntent(R.id.n_play, pi(A_TOGGLE));
-        v.setOnClickPendingIntent(R.id.n_next, pi(A_NEXT));
-        v.setOnClickPendingIntent(R.id.n_stop, pi(A_STOP));
-
-        Intent open = new Intent(this, MainActivity.class);
-        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent openPi = PendingIntent.getActivity(this, 1, open, PendingIntent.FLAG_UPDATE_CURRENT);
-
-        Notification.Builder b = new Notification.Builder(this)
-                .setSmallIcon(R.drawable.ic_stat_note)
-                .setContentTitle(s == null ? "网易云" : s.name)
-                .setContentText(s == null ? "" : s.artist)
-                .setContentIntent(openPi)
-                .setOngoing(true)
-                .setPriority(Notification.PRIORITY_LOW)
-                .setContent(v);
-        Notification n = b.build();
-        n.flags |= Notification.FLAG_NO_CLEAR;
-        return n;
-    }
-
-    private PendingIntent pi(String action) {
-        Intent i = new Intent(this, PlayService.class);
-        i.setAction(action);
-        return PendingIntent.getService(this, action.hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT);
-    }
-
     @Override
     public void onDestroy() {
         main.removeCallbacks(tick);
+        releaseWake();
         super.onDestroy();
     }
 }
