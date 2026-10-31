@@ -20,6 +20,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
@@ -116,6 +117,8 @@ public class MainActivity extends Activity implements Player.Listener {
     private ListView songList;
     private TextView listTitle, listInfo, emptyHint;
     private RowAdapter adapter;
+    private View listTopPad, listBottomPad;   // 列表上下留白，让当前播放行能停在正中
+    private int padHeight = -1;
 
     // 右栏
     private TextView nowTitle, nowArtist, lyricView;
@@ -361,6 +364,7 @@ public class MainActivity extends Activity implements Player.Listener {
             return;
         }
 
+        PlayService.clearLegacyNotification(this);   // 清掉老版本留下的播放通知
         loadDaily();
         refreshLikedIds(false);
         prefetchPlaylistCount();
@@ -378,7 +382,32 @@ public class MainActivity extends Activity implements Player.Listener {
         // 由 Player.onQueueEnded() 回调触发，这里不挂点击。
         emptyHint = (TextView) findViewById(R.id.empty_hint);
         adapter = new RowAdapter();
+        // 上下各垫一段留白：ListView 默认只有到不了两头之外的滚动空间，
+        // 没有留白的话最后几首永远顶不到正中（车主要求正在播的固定在中间）
+        listTopPad = new View(this);
+        listBottomPad = new View(this);
+        songList.addHeaderView(listTopPad, null, false);
+        songList.addFooterView(listBottomPad, null, false);
         songList.setAdapter(adapter);
+        songList.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int t, int r, int b,
+                                                 int ol, int ot, int or, int ob) {
+                try {
+                    int h = (b - t) / 2 - dp(36);
+                    if (h < 0) h = 0;
+                    if (padHeight == h) return;
+                    padHeight = h;
+                    // 直接换 LayoutParams：ListView 的 header/footer 布局参数可能还是 null，
+                    // 改字段会 NPE（4.4 上踩过）
+                    listTopPad.setLayoutParams(
+                            new AbsListView.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT, h));
+                    listBottomPad.setLayoutParams(
+                            new AbsListView.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT, h));
+                } catch (Exception e) { }
+            }
+        });
 
         // 右栏
         cover = (ImageView) findViewById(R.id.cover);
@@ -489,11 +518,12 @@ public class MainActivity extends Activity implements Player.Listener {
             if (icon != null) {
                 android.widget.LinearLayout.LayoutParams lp =
                         (android.widget.LinearLayout.LayoutParams) icon.getLayoutParams();
-                // 折叠时图标占满整列并居中；展开时固定 26dp 靠左
+                // 折叠时图标占满整列并居中；展开时固定 30dp 靠左
+                // （30dp 配 20sp 标题才够份量，26dp 时图标显得比字小，看着不协调）
                 lp.width = collapsed ? android.widget.LinearLayout.LayoutParams.MATCH_PARENT
-                                     : dp(26);
-                lp.height = dp(26);
-                lp.rightMargin = collapsed ? 0 : dp(9);
+                                     : dp(34);
+                lp.height = dp(collapsed ? 30 : 34);
+                lp.rightMargin = collapsed ? 0 : dp(10);
                 lp.leftMargin = 0;
                 icon.setLayoutParams(lp);
                 icon.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
@@ -596,6 +626,7 @@ public class MainActivity extends Activity implements Player.Listener {
         songList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
+                pos -= songList.getHeaderViewsCount();   // 头部留白占了一位
                 if (pos < 0 || pos >= adapter.getCount()) return;
                 Row r = (Row) adapter.getItem(pos);
                 if (listMode == LIST_PLAYLISTS) {
@@ -917,7 +948,9 @@ public class MainActivity extends Activity implements Player.Listener {
                 if (songs.get(i).id == cur.id) { at = i; break; }
             }
         }
-        songList.setSelection(at >= 0 ? at : 0);
+        // 有正在播的就把那首居中；没有就把头部留白顶出去、从第一行开始看
+        if (at >= 0) scrollListToCurrent(songs.get(at).id);
+        else scrollListToTop();
         markCachedAsync(ids, q);
     }
 
@@ -971,7 +1004,7 @@ public class MainActivity extends Activity implements Player.Listener {
         }
         hideHint();
         adapter.setRows(rows);
-        songList.setSelection(0);
+        scrollListToTop();
     }
 
     /* ==================================================================== */
@@ -1101,7 +1134,7 @@ public class MainActivity extends Activity implements Player.Listener {
         }
         hideHint();
         adapter.setRows(rows);
-        songList.setSelection(0);
+        scrollListToTop();
     }
 
     private void showSettings() {
@@ -1661,9 +1694,21 @@ public class MainActivity extends Activity implements Player.Listener {
         scrollListToCurrent(s.id);
     }
 
+    /** 回到列表最上面：把头部留白整段顶出去，让第一行贴着列表顶端 */
+    private void scrollListToTop() {
+        if (songList == null || adapter == null) return;
+        songList.post(new Runnable() {
+            @Override public void run() {
+                int pad = listTopPad == null ? 0 : listTopPad.getHeight();
+                songList.setSelectionFromTop(songList.getHeaderViewsCount(), -pad);
+            }
+        });
+    }
+
     /**
-     * 把中栏列表滚到正在播的那首。
-     * 已经看得见就不动 —— 否则用户滑着看列表，一换歌就被拽回去，很难受。
+     * 把中栏列表滚到正在播的那首，并且**固定放在列表正中**（车主定的）：
+     * 上下各留一半，往下切歌时列表跟着走，正在播的永远在中间那行。
+     * 用 post 等这一帧的布局跑完再滚，否则 notifyDataSetChanged 的重排会把滚动位置吃掉。
      */
     private void scrollListToCurrent(long songId) {
         if (listMode != LIST_SONGS || songList == null || adapter == null) return;
@@ -1672,16 +1717,16 @@ public class MainActivity extends Activity implements Player.Listener {
             if (currentSongs.get(i).id == songId) { at = i; break; }
         }
         if (at < 0 || at >= adapter.getCount()) return;
-        int first = songList.getFirstVisiblePosition();
-        int last = songList.getLastVisiblePosition();
-        if (at >= first && at <= last) return;     // 已经露出来，别抖
-        // 放到中间偏上，前后都能看到一点上下文
         final int target = at;
-        final int offset = Math.max(0, (songList.getHeight() - dp(72)) / 3);
-        // 必须等这一帧的布局跑完再滚，否则 notifyDataSetChanged 的重排会把滚动位置吃掉
+        final int rowH = dp(72);
         songList.post(new Runnable() {
             @Override public void run() {
-                songList.setSelectionFromTop(target, offset);
+                int h = songList.getHeight();
+                if (h <= 0) return;
+                // 中间那行：上面留 (高 - 行高)/2；头部留白就是这段距离，
+                // 所以直接把留白高度当 offset，行首正好落在正中
+                int offset = Math.max(0, (h - rowH) / 2);
+                songList.setSelectionFromTop(target + songList.getHeaderViewsCount(), offset);
             }
         });
     }

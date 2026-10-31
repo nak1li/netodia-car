@@ -27,6 +27,16 @@ import android.os.Looper;
  */
 public class PlayService extends Service {
 
+    /** 老版本用 startForeground 挂过通知；升级后那条通知会残留，启动时清掉 */
+    static final int LEGACY_NOTIF_ID = 1001;
+
+    static void clearLegacyNotification(Context c) {
+        try {
+            ((android.app.NotificationManager) c.getSystemService(NOTIFICATION_SERVICE))
+                    .cancel(LEGACY_NOTIF_ID);
+        } catch (Exception e) { }
+    }
+
     static final String A_TOGGLE = "com.nakili.ncmcar.action.TOGGLE";
     static final String A_NEXT = "com.nakili.ncmcar.action.NEXT";
     static final String A_PREV = "com.nakili.ncmcar.action.PREV";
@@ -43,6 +53,12 @@ public class PlayService extends Service {
         } catch (Exception e) {
             // 被系统限制后台启动时不影响播放本身
         }
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        clearLegacyNotification(this);
     }
 
     @Override

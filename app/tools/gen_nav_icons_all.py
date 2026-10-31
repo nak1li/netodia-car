@@ -18,7 +18,7 @@ RES = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
 DENS = {'mdpi': 1.0, 'hdpi': 1.5, 'xhdpi': 2.0}
 SS = 4
 WHITE = (0xDD, 0xE4, 0xEE, 255)
-DP = 26
+DP = 34
 
 
 def blank(px):
