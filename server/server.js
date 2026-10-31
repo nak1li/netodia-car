@@ -300,6 +300,65 @@ const routes = {
     send(res, 200, { code: 200, ids, songs, total: songs.length })
   },
 
+  // 私人 FM：网易云 /api/v1/radio/get，每次返回一小批
+  async '/api/fm'(req, res, u) {
+    const st = await uidState()
+    if (st.err) return send(res, 502, { error: 'upstream_error', msg: st.err, songs: [] })
+    if (!st.id) return send(res, 403, { code: 301, error: 'login_required', songs: [] })
+    try {
+      // 上游一次只回 3 首，还会重复；连要 4 批并去重，凑够一屏
+      const seen = new Set()
+      const songs = []
+      for (let i = 0; i < 4 && songs.length < 12; i++) {
+        const body = await call('personal_fm', {})
+        const raw = body?.data || body?.result || []
+        if (!raw.length) break
+        for (const s of raw) {
+          const n = normSong(s)
+          if (!n || seen.has(String(n.id))) continue
+          seen.add(String(n.id))
+          songs.push(n)
+        }
+      }
+      return send(res, 200, { code: 200, songs, total: songs.length })
+    } catch (e) {
+      return send(res, 502, { error: 'upstream_error', msg: e.message, songs: [] })
+    }
+  },
+
+  // 心动模式：以一首歌为种子取相似歌曲，串成不会重复的连续播放流
+  async '/api/similar'(req, res, u) {
+    const seed = u.searchParams.get('id')
+    if (!seed) return send(res, 400, { error: 'id required', songs: [] })
+    const lim0 = parseInt(u.searchParams.get('limit') || '30', 10)
+    const limit = Number.isFinite(lim0) && lim0 > 0 ? Math.min(lim0, 100) : 30
+    const ex = (u.searchParams.get('exclude') || '').split(',').filter(Boolean)
+    try {
+      // 上游「相似歌曲」一次只给 5 首左右，不够一屏。
+      // 用滚雪球：拿上一批的最后一首当新种子继续要，最多 4 轮。
+      const seen = new Set(ex)
+      seen.add(String(seed))
+      const songs = []
+      let cur = String(seed)
+      for (let round = 0; round < 4 && songs.length < limit; round++) {
+        const body = await call('simi_song', { id: cur, limit: 20 })
+        const raw = body?.songs || []
+        if (!raw.length) break
+        for (const s of raw) {
+          const n = normSong(s)
+          if (!n || seen.has(String(n.id))) continue
+          seen.add(String(n.id))
+          songs.push(n)
+          if (songs.length >= limit) break
+        }
+        cur = String(raw[raw.length - 1].id)
+      }
+      return send(res, 200, { code: 200, seed: Number(seed), songs, total: songs.length })
+    } catch (e) {
+      return send(res, 502, { error: 'upstream_error', msg: e.message, songs: [] })
+    }
+  },
+
   // 红心 / 取消红心
   async '/api/like'(req, res, u) {
     const id = u.searchParams.get('id')
@@ -314,7 +373,7 @@ const routes = {
     const body = await call('like', { id: String(id), like: like ? 'true' : 'false' })
     if (body?.code === 200) {
       // 红心状态变了，本地 id 缓存立即失效，避免车机看到旧状态
-      likedCache.delete(String(uid))
+      likedCache.delete(String(st.id))   // 原来写成未定义的 uid，一调红心就 500
       console.log('[like]', id, like ? 'liked' : 'unliked')
     }
     send(res, 200, { code: body?.code, id: Number(id), like })

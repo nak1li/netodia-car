@@ -252,6 +252,20 @@ public class ApiClient {
         return songsOf(o.optJSONArray("songs"));
     }
 
+    /** 私人 FM（每次一小批，多为 3 首） */
+    public static List<Song> personalFm(Context c) throws Exception {
+        JSONObject o = obj(exec(c, "/api/fm"));
+        return songsOf(o.optJSONArray("songs"));
+    }
+
+    /** 心动模式：以某首歌为种子拿相似歌曲（服务端已滚雪球到 limit 首） */
+    public static List<Song> similarSongs(Context c, long seedId, int limit, String exclude) throws Exception {
+        String p = "/api/similar?id=" + seedId + "&limit=" + limit;
+        if (exclude != null && exclude.length() > 0) p += "&exclude=" + exclude;
+        JSONObject o = obj(exec(c, p));
+        return songsOf(o.optJSONArray("songs"));
+    }
+
     /** 我的歌单 */
     public static List<Playlist> userPlaylists(Context c, int limit) throws Exception {
         JSONObject o = obj(exec(c, "/api/user/playlists?limit=" + limit));

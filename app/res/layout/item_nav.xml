@@ -2,8 +2,8 @@
 <!-- 左栏入口：78dp 高、圆角 10dp、1dp 描边（背景/配色由代码按选中态切） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="78dp"
-    android:layout_marginBottom="6dp"
+    android:layout_height="56dp"
+    android:layout_marginBottom="3dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:paddingLeft="13dp"
@@ -19,6 +19,7 @@
         android:textSize="23sp" />
 
     <LinearLayout
+        android:id="@+id/nav_texts"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
@@ -38,10 +39,10 @@
             android:id="@+id/nav_sub"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:maxLines="1"
             android:ellipsize="end"
             android:textColor="#7D8896"
-            android:textSize="15sp" />
+            android:textSize="13sp" />
     </LinearLayout>
 </LinearLayout>

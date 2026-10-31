@@ -1,25 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 进度条 8dp 轨道；SeekBar 的 paddingTop/Bottom 把绘制区压到 8dp -->
+<!-- 进度条：12dp 轨道（车机上细线看不清，手指也不好按）。
+     底色 #3A4658 / 已播放 #7FA8FF：
+     原来 #2A3442 vs #5B8DEF 对比度只有约 1.9:1，分界线几乎糊在一起。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
-            <solid android:color="#2A3442" />
-            <corners android:radius="4dp" />
+            <solid android:color="#3A4658" />
+            <corners android:radius="6dp" />
         </shape>
     </item>
     <item android:id="@android:id/secondaryProgress">
         <clip>
             <shape android:shape="rectangle">
-                <solid android:color="#2A3442" />
-                <corners android:radius="4dp" />
+                <solid android:color="#3A4658" />
+                <corners android:radius="6dp" />
             </shape>
         </clip>
     </item>
     <item android:id="@android:id/progress">
         <clip>
             <shape android:shape="rectangle">
-                <solid android:color="#5B8DEF" />
-                <corners android:radius="4dp" />
+                <solid android:color="#7FA8FF" />
+                <corners android:radius="6dp" />
             </shape>
         </clip>
     </item>

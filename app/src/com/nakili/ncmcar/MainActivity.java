@@ -68,11 +68,18 @@ public class MainActivity extends Activity implements Player.Listener {
     private static final int NAV_LIKE = 1;
     private static final int NAV_PLAYLIST = 2;
     private static final int NAV_SEARCH = 3;
-    private static final int NAV_COUNT = 4;
+    private static final int NAV_HEART = 4;   // 心动模式（以当前歌为种子连播相似）
+    private static final int NAV_FM = 5;      // 私人 FM
+    private static final int NAV_COUNT = 6;
 
-    private static final String[] NAV_ICONS = {"☀", "♥", "≡", ""};
-    private static final String[] NAV_TITLES = {"每日推荐", "红心歌曲", "我的歌单", "搜索"};
-    private static final String[] NAV_SUBS = {"每天 6:00 更新", "同步中…", "同步中…", ""};
+    // 空串表示该入口用位图图标（4.4 字体没有这些字形）
+    private static final String[] NAV_ICONS = {"☀", "♥", "≡", "", "", ""};
+    private static final int[] NAV_DRAW = {0, 0, 0, R.drawable.ic_search,
+            R.drawable.ic_heart_mode, R.drawable.ic_fm};
+    private static final String[] NAV_TITLES = {"每日推荐", "红心歌曲", "我的歌单", "搜索",
+            "心动模式", "私人 FM"};
+    private static final String[] NAV_SUBS = {"每天 6:00 更新", "同步中…", "同步中…", "",
+            "按当前歌找相似", "猜你喜欢"};
 
     /* ---------------- 中栏列表类型 ---------------- */
     private static final int LIST_SONGS = 0;
@@ -92,6 +99,16 @@ public class MainActivity extends Activity implements Player.Listener {
     private final TextView[] navSubs = new TextView[NAV_COUNT];
     private final TextView[] navIcons = new TextView[NAV_COUNT];
     private int navSelected = -1;
+    /** 左栏折叠：图标栏模式（56dp），中间列表和右侧播放器分走腾出来的宽度 */
+    private boolean navCollapsed = false;
+    /** 多久没操作就把左栏自动收起（车主说「多久没动作自动折叠」） */
+    private static final long IDLE_COLLAPSE_MS = 60 * 1000L;
+    private final Runnable idleCollapse = new Runnable() {
+        @Override public void run() {
+            if (!navCollapsed && !isFinishing()) applyNavCollapsed(true);
+        }
+    };
+    private static final String K_NAV_COLLAPSED = "nav_collapsed";
 
     // 中栏
     private ListView songList;
@@ -365,9 +382,9 @@ public class MainActivity extends Activity implements Player.Listener {
             View item = inf.inflate(R.layout.item_nav, box, false);
             navIcons[i] = (TextView) item.findViewById(R.id.nav_icon);
             if (NAV_ICONS[i].isEmpty()) {
-                // 字符放大镜(⌕/🔍)在 Android 4.4 字体里没有字形，用位图代替
+                // Android 4.4 字体没有这些字形（⌕ ⚙ 心形 收音机），一律用位图
                 navIcons[i].setText("");
-                navIcons[i].setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
+                navIcons[i].setCompoundDrawablesWithIntrinsicBounds(NAV_DRAW[i], 0, 0, 0);
             } else {
                 navIcons[i].setText(NAV_ICONS[i]);
             }
@@ -384,17 +401,86 @@ public class MainActivity extends Activity implements Player.Listener {
             box.addView(item);
         }
 
-        TextView settings = (TextView) findViewById(R.id.nav_settings);
-        settings.setOnClickListener(new View.OnClickListener() {
+        // 记住上次的折叠状态：车机重启后不用每次再点一遍
+        if (AppConfig.p(this).getBoolean(K_NAV_COLLAPSED, false)) applyNavCollapsed(true);
+        resetIdleTimer();
+
+        findViewById(R.id.nav_collapse).setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { applyNavCollapsed(!navCollapsed); }
+        });
+
+        // 设置齿轮在左栏头部（Tap=设置，长按=下载页）
+        View gear = findViewById(R.id.nav_gear);
+        gear.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { showSettings(); }
         });
-        // 长按设置条直达下载页（车机上比层层点更省手）
-        settings.setOnLongClickListener(new View.OnLongClickListener() {
+        gear.setOnLongClickListener(new View.OnLongClickListener() {
             @Override public boolean onLongClick(View v) {
                 showDownloads();
                 return true;
             }
         });
+    }
+
+    /** 折叠/展开左栏：宽度按权重分，文字块整块隐藏，只留图标 */
+    /** 任何触摸都重新计时；到点自动收起左栏 */
+    private void resetIdleTimer() {
+        main.removeCallbacks(idleCollapse);
+        main.postDelayed(idleCollapse, IDLE_COLLAPSE_MS);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        resetIdleTimer();
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void applyNavCollapsed(boolean collapsed) {
+        navCollapsed = collapsed;
+        View navCol = findViewById(R.id.nav_col);
+        View listCol = findViewById(R.id.list_col);
+        View playerCol = findViewById(R.id.player_col);
+        setWeight(navCol, collapsed ? 56 : 220);
+        // 腾出来的 164 按 108/56 分给列表和播放器
+        setWeight(listCol, collapsed ? 640 : 532);
+        setWeight(playerCol, collapsed ? 328 : 272);
+
+        findViewById(R.id.nav_head_title).setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        TextView toggle = (TextView) findViewById(R.id.nav_collapse);
+        toggle.setText(collapsed ? "\u203A" : "\u2039");
+        toggle.setPadding(0, 0, 0, 0);
+
+        int pad = dp(collapsed ? 0 : 13);
+        for (int i = 0; i < NAV_COUNT; i++) {
+            View item = navItems[i];
+            if (item == null) continue;
+            View texts = item.findViewById(R.id.nav_texts);
+            if (texts != null) texts.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+            item.setPadding(pad, 0, pad, 0);
+            TextView icon = navIcons[i];
+            if (icon != null) {
+                android.widget.LinearLayout.LayoutParams lp =
+                        (android.widget.LinearLayout.LayoutParams) icon.getLayoutParams();
+                lp.width = collapsed ? android.widget.LinearLayout.LayoutParams.MATCH_PARENT
+                                     : dp(32);
+                lp.leftMargin = 0;
+                icon.setLayoutParams(lp);
+                icon.setGravity(android.view.Gravity.CENTER);
+            }
+        }
+
+        AppConfig.p(this).edit().putBoolean(K_NAV_COLLAPSED, collapsed).commit();
+    }
+
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private void setWeight(View v, int w) {
+        android.widget.LinearLayout.LayoutParams lp =
+                (android.widget.LinearLayout.LayoutParams) v.getLayoutParams();
+        lp.weight = w;
+        v.setLayoutParams(lp);
     }
 
     private void setNavSelected(int idx) {
@@ -419,11 +505,19 @@ public class MainActivity extends Activity implements Player.Listener {
     }
 
     private void onNavClick(int idx) {
+        // 再点一次当前入口就收起左栏（车机上腾出宽度给列表和封面）
+        if (idx == navSelected && !navCollapsed && idx != NAV_SEARCH) {
+            applyNavCollapsed(true);
+            return;
+        }
+        if (navCollapsed) applyNavCollapsed(false);
         switch (idx) {
             case NAV_DAILY: loadDaily(); break;
             case NAV_LIKE: loadLiked(); break;
             case NAV_PLAYLIST: loadMyPlaylists(); break;
             case NAV_SEARCH: showSearchDialog(); break;
+            case NAV_HEART: loadHeartbeat(); break;
+            case NAV_FM: loadFm(); break;
             default: break;
         }
     }
@@ -548,6 +642,96 @@ public class MainActivity extends Activity implements Player.Listener {
                             setHeader("每日推荐", "加载失败");
                             adapter.clear();
                             showHint("拉取失败：" + msgOf(e) + "\n可在「设置」里检查服务器地址");
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    /** 心动模式：以当前播放的歌为种子，拉一串相似歌曲（服务端滚雪球到 30 首） */
+    private void loadHeartbeat() {
+        setNavSelected(NAV_HEART);
+        final int seq = ++loadSeq;
+        listMode = LIST_SONGS;
+        setHeader("心动模式", "");
+        adapter.clear();
+        showHint("正在按当前歌曲找相似…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    long seed = 0;
+                    Song cur = player.getCurrent();
+                    if (cur != null) seed = cur.id;
+                    if (seed == 0 && !currentSongs.isEmpty()) seed = currentSongs.get(0).id;
+                    if (seed == 0) {
+                        final List<Song> like = ApiClient.likelistSongs(MainActivity.this, 1);
+                        if (!like.isEmpty()) seed = like.get(0).id;
+                    }
+                    if (seed == 0) throw new Exception("没有可用的种子歌曲，先随便放一首");
+                    final List<Song> songs = ApiClient.similarSongs(MainActivity.this, seed, 30, "");
+                    final String seedName = player.getCurrent() == null ? "" : player.getCurrent().name;
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            if (seq != loadSeq) return;
+                            String info = seedName.length() > 0
+                                    ? "种子：" + seedName + " · " + songs.size() + " 首"
+                                    : songs.size() + " 首";
+                            showSongs("心动模式", info, songs);
+                            setNavSub(NAV_HEART, songs.size() + " 首");
+                        }
+                    });
+                } catch (final Exception e) {
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            if (seq != loadSeq) return;
+                            setHeader("心动模式", "加载失败");
+                            adapter.clear();
+                            showHint("拉取失败：" + msgOf(e));
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    /** 私人 FM：每次 3 首左右，再点一次换一批 */
+    private void loadFm() {
+        setNavSelected(NAV_FM);
+        final int seq = ++loadSeq;
+        listMode = LIST_SONGS;
+        setHeader("私人 FM", "");
+        adapter.clear();
+        showHint("正在为你挑选…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final List<Song> songs = ApiClient.personalFm(MainActivity.this);
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            if (seq != loadSeq) return;
+                            showSongs("私人 FM", songs.size() + " 首 · 再点一次换一批", songs);
+                            setNavSub(NAV_FM, "共 " + songs.size() + " 首");
+                        }
+                    });
+                } catch (final ApiClient.NeedLoginException e) {
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            if (seq != loadSeq) return;
+                            setHeader("私人 FM", "未登录");
+                            adapter.clear();
+                            showHint(MSG_LOGIN);
+                        }
+                    });
+                } catch (final Exception e) {
+                    main.post(new Runnable() {
+                        @Override public void run() {
+                            if (seq != loadSeq) return;
+                            setHeader("私人 FM", "加载失败");
+                            adapter.clear();
+                            showHint("拉取失败：" + msgOf(e));
                         }
                     });
                 }
