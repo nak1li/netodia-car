@@ -364,6 +364,15 @@ public class MainActivity extends Activity implements Player.Listener {
         songList = (ListView) findViewById(R.id.song_list);
         listTitle = (TextView) findViewById(R.id.list_title);
         listInfo = (TextView) findViewById(R.id.list_info);
+        // 私人FM 头部写着「再点一次换一批」，这句话必须能点、点了真换一批，
+        // 否则就是骗人的提示。（再点左栏「私人 FM」入口是「收起左栏」，不是换一批）
+        listInfo.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (listMode == LIST_SONGS && "私人 FM".equals(listTitle.getText().toString())) {
+                    loadFm();
+                }
+            }
+        });
         emptyHint = (TextView) findViewById(R.id.empty_hint);
         adapter = new RowAdapter();
         songList.setAdapter(adapter);
