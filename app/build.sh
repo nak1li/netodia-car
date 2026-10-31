@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-#!/bin/bash
 # Netodia Car — 网易云音乐车机播放器
 # Copyright (c) 2026 nak1li
 #

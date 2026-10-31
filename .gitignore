@@ -25,3 +25,7 @@ cache/
 .DS_Store
 .idea/
 *.iml
+
+# Python 字节码
+__pycache__/
+*.pyc
