@@ -78,6 +78,41 @@ public class ApiClient {
     }
 
     public static String get(Context c, String path) throws Exception {
+        try {
+            return getOnce(c, path);
+        } catch (Exception e) {
+            // 连接失败（多半是家里 PPPoE 换了公网 IP）→ 重新解析一次地址再试。
+            // 没有这一步的话，车机每次遇到 IP 变更都必须重启 App 才能恢复，
+            // 而车机上没人会去重启它 —— 表现就是「听歌软件突然连不上服务器」。
+            String fixed = tryReResolve(c);
+            if (fixed == null) throw e;
+            return getOnce(c, path);
+        }
+    }
+
+    /**
+     * 重新解析服务端地址。成功返回新 base url，失败返回 null。
+     *
+     * 注意：只在「用户没手填过地址」时才回写探测结果 ——
+     * 用户手填的地址是明确意图，不能被自动探测顶掉（否则「改了不生效」）。
+     */
+    private static String tryReResolve(Context c) {
+        if (c == null) return null;
+        try {
+            // 用户手填过 → 不动它，让上层报「连不上」并提示去设置里改
+            String user = AppConfig.p(c).getString("server", "");
+            if (user != null && user.length() > 0) return null;
+
+            String resolved = ServerResolver.resolve(c, 4000);
+            if (resolved == null || resolved.length() == 0) return null;
+            if (resolved.equals(server(c))) return null;
+            return resolved;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String getOnce(Context c, String path) throws Exception {
         HttpURLConnection cn = conn(c, path, false);
         try {
             int code = cn.getResponseCode();
@@ -163,6 +198,16 @@ public class ApiClient {
         return server(c) + "/api/stream?id=" + id + "&quality=" + URLEncoder.encode(q)
                 + "&ext=" + LocalCache.extFor(q)
                 + "&token=" + URLEncoder.encode(AppConfig.getToken(c));
+    }
+
+    /** 单首歌的元信息（换地址后重播要用） */
+    public static Song songDetail(Context c, long id) throws Exception {
+        JSONObject o = new JSONObject(get(c, "/api/song/detail?id=" + id + "&ids=" + id));
+        JSONArray arr = o.optJSONArray("songs");
+        if (arr != null && arr.length() > 0) return Song.fromJson(arr.getJSONObject(0));
+        JSONObject one = o.optJSONObject("song");
+        if (one != null) return Song.fromJson(one);
+        return null;
     }
 
     static class URLEncoder {
@@ -304,4 +349,5 @@ public class ApiClient {
         }
         obj(r);
     }
+
 }

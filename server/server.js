@@ -17,6 +17,7 @@
 const http = require('http')
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 const { URL } = require('url')
 const { call, normSong, COOKIE_FILE } = require('./ncm-api.js')
 const cache = require('./cache.js')
@@ -25,6 +26,18 @@ const metaCache = require('./meta-cache.js')
 const PORT = parseInt(process.env.NCM_PORT || '28475', 10)
 const HOST = process.env.NCM_HOST || '0.0.0.0'
 const TOKEN = process.env.NCM_TOKEN || ''
+
+// 常时比较 token：`!==` 会因为第一个不同的字节提前返回，
+// 理论上可以从响应耗时差异里逐位试出 token（时序侧信道）。
+// 长度不同就直接判不等（长度本身不算秘密）。
+function safeEqual(a, b) {
+  a = String(a == null ? '' : a)
+  b = String(b == null ? '' : b)
+  const ba = Buffer.from(a, 'utf8')
+  const bb = Buffer.from(b, 'utf8')
+  if (ba.length !== bb.length) return false
+  return crypto.timingSafeEqual(ba, bb)
+}
 
 // 音质档位 → 网易云 level
 // 实测（8 首抽样）：jymaster / jyeffect / sky / dolby 上游返回的是同一份字节
@@ -898,7 +911,8 @@ const server = http.createServer(async (req, res) => {
   // 鉴权：token 走 header 或 query（车机是内嵌 token 的）
   if (TOKEN) {
     const supplied = req.headers['x-ncm-token'] || u.searchParams.get('token')
-    if (supplied !== TOKEN) {
+    // 常时比较：`!==` 会短路，理论上能从响应耗时差异里逐位试出 token
+    if (!safeEqual(supplied, TOKEN)) {
       return send(res, 401, { error: 'unauthorized' })
     }
   }

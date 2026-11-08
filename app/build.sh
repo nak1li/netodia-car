@@ -94,11 +94,12 @@ if [ -z "$SRV" ] && [ -f "$SRVF" ]; then SRV=$(tr -d '\r\n' < "$SRVF"); fi
 
 # 可选的自动发现参数（局域网入口 / 内置公网 IP / 取 IP 的固定地址），没有就留空
 RESOLVER_CFG="${NCM_RESOLVER_FILE:-$SECRET_DIR/ncm.resolver}"
-LANURL=""; PUBIP=""; IPSRC=""
+LANURL=""; PUBIP=""; IPSRC=""; IPSRCFB=""
 if [ -f "$RESOLVER_CFG" ]; then
   LANURL=$(sed -n 's/^lan=//p' "$RESOLVER_CFG" | head -1)
   PUBIP=$(sed -n 's/^public_ip=//p' "$RESOLVER_CFG" | head -1)
   IPSRC=$(sed -n 's/^ip_source=//p' "$RESOLVER_CFG" | head -1)
+  IPSRCFB=$(sed -n 's/^ip_source_fallbacks=//p' "$RESOLVER_CFG" | head -1)
 fi
 
 SECRETS_JAVA="$PROJ/src/com/nakili/ncmcar/Secrets.java"
@@ -112,6 +113,7 @@ final class Secrets {
     static final String LAN = "$LANURL";
     static final String PUBLIC_IP = "$PUBIP";
     static final String IP_SOURCE = "$IPSRC";
+    static final String IP_SOURCE_FALLBACKS = "$IPSRCFB";
     private Secrets() {}
 }
 EOF

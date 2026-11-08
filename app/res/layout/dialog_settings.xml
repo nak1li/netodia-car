@@ -92,5 +92,19 @@
             android:text="我的下载（已缓存曲目）"
             android:textColor="#7FA9FF"
             android:textSize="17sp" />
+
+        <!-- 车机 Agent（合并进来的后台服务）：点这行 = 打开 Agent 状态页/检查更新 -->
+        <TextView
+            android:id="@+id/set_agent"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/nav_item_normal"
+            android:gravity="center_vertical"
+            android:paddingLeft="13dp"
+            android:paddingRight="13dp"
+            android:text="车机 Agent（点此检查更新）"
+            android:textColor="#7FA9FF"
+            android:textSize="17sp" />
     </LinearLayout>
 </ScrollView>

@@ -47,11 +47,22 @@ public class ServerResolver {
     private static final String PATH = "/ncm";
     private static final String GIST_RAW = Secrets.IP_SOURCE;
 
+    /**
+     * 备用发现源（逗号分隔，按顺序试）。
+     *
+     * 为什么要有多个：车机在中国移动 4G 上，GitHub 时通时不通，
+     * 只挂一个 gist 的话，GitHub 一抽风车机就又瞎了 —— 而它瞎了就没法
+     * 自己恢复（车机不在内网，只能走公网）。
+     * 这里的备用源必须是「纯 HTTP + 稳定地址」，不能有 TLS 依赖
+     * （Android 4.4 的 TLS 1.2 支持有坑，能不碰就不碰）。
+     */
+    private static final String IP_SOURCE_FALLBACKS = Secrets.IP_SOURCE_FALLBACKS;
+
     private static final String K_LAST_GOOD = "last_good_server";
 
     /** 依次探测，返回第一个可用的 base url；全不可用返回 null */
     public static String resolve(Context c, int timeoutMs) {
-        // 1) 上次成功的
+        // 1) 上次成功的（但要先确认它没失效 —— 见下方说明）
         String last = AppConfig.p(c).getString(K_LAST_GOOD, "");
         if (!last.isEmpty() && ping(last, timeoutMs)) {
             return last;
@@ -65,16 +76,14 @@ public class ServerResolver {
 
         // 3) 出厂内置公网 IP（没配置就跳过）
         if (BAKED_PUBLIC_IP != null && BAKED_PUBLIC_IP.length() > 0) {
-        String baked = "http://" + BAKED_PUBLIC_IP + ":" + PORT + PATH;
-        if (ping(baked, timeoutMs)) {
-            remember(c, baked);
-            return baked;
-        }
-
+            String baked = "http://" + BAKED_PUBLIC_IP + ":" + PORT + PATH;
+            if (ping(baked, timeoutMs)) {
+                remember(c, baked);
+                return baked;
+            }
         }
 
         // 4) 查固定地址拿当前公网 IP（只在前面全失败时才查）
-        if (GIST_RAW == null || GIST_RAW.length() == 0) return null;
         String ip = fetchCurrentPublicIp();
         if (ip != null) {
             String url = "http://" + ip + ":" + PORT + PATH;
@@ -108,10 +117,30 @@ public class ServerResolver {
         }
     }
 
-    /** 从 gist 读公网 IP，做格式校验 */
+    /** 从多个源读公网 IP，做格式校验。第一个成功的即返回。 */
     private static String fetchCurrentPublicIp() {
+        // 主源：gist（HTTPS，车机端已显式启用 TLS 1.2）
+        String ip = fetchIpFrom(GIST_RAW);
+        if (ip != null) return ip;
+
+        // 备用源：纯 HTTP，避开 TLS 和 GitHub 单点
+        if (IP_SOURCE_FALLBACKS != null && IP_SOURCE_FALLBACKS.length() > 0) {
+            String[] srcs = IP_SOURCE_FALLBACKS.split(",");
+            for (int i = 0; i < srcs.length; i++) {
+                String s = srcs[i].trim();
+                if (s.length() == 0) continue;
+                ip = fetchIpFrom(s);
+                if (ip != null) return ip;
+            }
+        }
+        return null;
+    }
+
+    /** 从单个地址读 IP（纯文本内容就是一个 IPv4） */
+    private static String fetchIpFrom(String url) {
+        if (url == null || url.length() == 0) return null;
         try {
-            HttpURLConnection cn = (HttpURLConnection) new URL(GIST_RAW).openConnection();
+            HttpURLConnection cn = (HttpURLConnection) new URL(url).openConnection();
             // Android 4.4 的 HttpsURLConnection 默认只开 TLS 1.0/1.1，
             // 而 GitHub 早在 2022 就停了，不显式启用 TLS 1.2 这条自愈路径必然失败
             if (cn instanceof javax.net.ssl.HttpsURLConnection) {

@@ -14,6 +14,7 @@ package com.nakili.ncmcar;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -38,6 +39,7 @@ import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ListView;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -104,6 +106,8 @@ public class MainActivity extends Activity implements Player.Listener {
 
     private Player player;
     private final Handler main = new Handler(Looper.getMainLooper());
+    /** 正在重新解析服务端地址（避免播放失败时并发触发多次解析） */
+    private boolean reResolving = false;
 
     // 左栏
     private final View[] navItems = new View[NAV_COUNT];
@@ -413,9 +417,10 @@ public class MainActivity extends Activity implements Player.Listener {
             @Override public void onScroll(AbsListView v, int first, int count, int total) {
                 if (!userScrolling) return;            // 自己滚的，别动锚点
                 int cur = currentRowIndex();
-                if (cur < 0) return;
-                int top = rowTopOnScreen(cur);
-                if (top >= 0) playAnchorPx = Math.max(0, top);
+                if (cur >= 0) {
+                    int top = rowTopOnScreen(cur);
+                    if (top >= 0) playAnchorPx = Math.max(0, top);
+                }
             }
         });
 
@@ -715,6 +720,19 @@ public class MainActivity extends Activity implements Player.Listener {
                 }
             }
         }).start();
+    }
+
+    /**
+     * 找合并进来的 Agent 状态页。
+     * 用反射而不是直接引用 —— 独立音乐版（不合并 Agent）没有这个类，
+     * 直接引用会编译不过。这一行是「一个 APK 里既有音乐又有 Agent」的关键接缝。
+     */
+    private static Class<?> agentActivityClass() {
+        try {
+            return Class.forName("com.nakili.ncmcar.agent.MainActivity");
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /** 心动模式：以当前播放的歌为种子，拉一串相似歌曲（服务端滚雪球到 30 首） */
@@ -1252,6 +1270,24 @@ public class MainActivity extends Activity implements Player.Listener {
                 showDownloads();
             }
         });
+
+        // 车机 Agent（合并版才有这个类；独立音乐版没有 → 整行隐藏）
+        final TextView ag = (TextView) v.findViewById(R.id.set_agent);
+        final Class<?> agentPage = agentActivityClass();
+        if (agentPage == null) {
+            ag.setVisibility(View.GONE);
+        } else {
+            ag.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View x) {
+                    dlg.dismiss();
+                    try {
+                        startActivity(new Intent(MainActivity.this, agentPage));
+                    } catch (Exception e) {
+                        toast("打不开 Agent 页面：" + msgOf(e));
+                    }
+                }
+            });
+        }
 
         dlg.show();
 
@@ -1852,6 +1888,90 @@ public class MainActivity extends Activity implements Player.Listener {
     public void onError(String msg) {
         toast("播放出错：" + msg);
         btnPlay.setImageResource(R.drawable.ic_play);
+        // 播放失败很可能不是歌的问题，而是家里 PPPoE 换了公网 IP ——
+        // stream URL 里带的是解析时的旧地址。重新解析一次再重播当前曲目。
+        retryPlayAfterReResolve();
+    }
+
+    /**
+     * 重新解析服务端地址后重播当前曲目。
+     *
+     * 为什么必须有这一步（和 agent 的 refreshHost 一个道理）：
+     * 家里公网 IP 每月变一次，车机常年在外网 4G，只能靠「拉取发现源」找到家。
+     * 如果发现源临时不可用，或者 App 启动时网络还没通，地址就停在旧 IP 上，
+     * 表现为「听歌软件连不上服务器」—— 而车机上没人会重启它。
+     * 所以任何一次连接失败，都值得再找一次家。
+     */
+    private void retryPlayAfterReResolve() {
+        if (reResolving) return;
+        if (player == null) return;
+        final Song cur = player.getCurrent();
+        if (cur == null) return;
+        final long songId = cur.id;
+        // 用户手填过地址就不动它 —— 那是明确意图，探测不该覆盖
+        String user = AppConfig.p(this).getString("server", "");
+        if (user != null && user.length() > 0) return;
+
+        reResolving = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String resolved = null;
+                try {
+                    resolved = ServerResolver.resolve(MainActivity.this, 4000);
+                } catch (Exception e) { }
+                final String fixed = resolved;
+                main.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        reResolving = false;
+                        if (fixed == null || fixed.length() == 0) {
+                            toast("找不到服务器，检查网络或到设置里填地址");
+                            return;
+                        }
+                        if (fixed.equals(ApiClient.server(MainActivity.this))) {
+                            // 地址没变 → 不是 IP 的问题，别空转
+                            toast("播放出错：连不上服务器");
+                            return;
+                        }
+                        toast("已切换到新地址，正在重播");
+                        // 重新拿歌的元信息再播（stream URL 里带的是新地址）
+                        replaySong(songId);
+                    }
+                });
+            }
+        });
+    }
+
+    /** 用新地址重播某首歌 */
+    private void replaySong(final long songId) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Song s = null;
+                try {
+                    s = ApiClient.songDetail(MainActivity.this, songId);
+                } catch (Exception e) { }
+                final Song got = s;
+                main.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (got == null) {
+                            // 拿不到元信息就退回用列表里的旧对象重播
+                            int at = currentRowIndex();
+                            if (at >= 0) {
+                                player.playIndex(at);
+                            } else {
+                                toast("播放出错：连不上服务器");
+                            }
+                            return;
+                        }
+                        player.setQueue(java.util.Collections.singletonList(got), 0);
+                        player.playCurrent();
+                    }
+                });
+            }
+        });
     }
 
     @Override
