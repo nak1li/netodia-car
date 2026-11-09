@@ -143,6 +143,13 @@ public class Player {
     private boolean released = false;
     /** prepare 落地后要不要立刻开播（BUFFERING 期间用户按了暂停就置 false） */
     private boolean startWhenPrepared = true;
+    /**
+     * 断点播放：prepare 落地后要跳到的位置（毫秒）。
+     * 由 MainActivity 恢复上次进度时设置，onPrepared 里消费一次就清零。
+     */
+    private int resumeMs = 0;
+    /** 上次落盘时间：播放中每 5 秒存一次「听到哪」 */
+    private long lastCursorSaveAt = 0;
 
     // 进度轮询
     private final Runnable ticker = new Runnable() {
@@ -161,6 +168,12 @@ public class Player {
                         if (cs != null) dur = cs.duration;
                     }
                     if (listener != null) listener.onProgress(pos, dur);
+                    // 断点播放：每 5 秒把「听到哪」落盘（车机断电时没有生命周期回调可用）
+                    long now = System.currentTimeMillis();
+                    if (now - lastCursorSaveAt > 5000) {
+                        lastCursorSaveAt = now;
+                        ResumeState.saveCursor(ctx, index, pos, true);
+                    }
                 } catch (Exception e) { }
             }
             if (state == STATE_PLAYING && !released) main.postDelayed(this, 500);
@@ -223,6 +236,18 @@ public class Player {
     public void setQuality(String q) { if (q != null && q.length() > 0) this.quality = q; }
     public String getQuality() { return quality; }
 
+    /** 断点播放：设置 prepare 落地后要跳到的位置（0 表示从头放） */
+    public void setResumeMs(int ms) { this.resumeMs = ms > 0 ? ms : 0; }
+
+    /** 当前播放位置（毫秒）；还没 prepare 好时返回待跳转的断点位置 */
+    public int getPosition() {
+        MediaPlayer p = mp;
+        if (p != null) {
+            try { return Math.max(0, p.getCurrentPosition()); } catch (Exception e) { }
+        }
+        return Math.max(0, resumeMs);
+    }
+
     public List<Song> getQueue() { return queue; }
     public int getIndex() { return index; }
     public Song getCurrent() {
@@ -265,6 +290,7 @@ public class Player {
             startWhenPrepared = !startWhenPrepared;
             userPaused = !startWhenPrepared;
             setState(STATE_BUFFERING);
+            persist();
             return;
         }
         MediaPlayer p = mp;
@@ -274,14 +300,16 @@ public class Player {
                 userPaused = true;
                 p.pause();
                 setState(STATE_PAUSED);
+                persist();
             } else if (state == STATE_PAUSED || state == STATE_COMPLETED) {
                 if (state == STATE_COMPLETED) p.seekTo(0);
                 // 焦点逻辑：拿不到就记下来等 GAIN，不要「因为已经 pausedByFocus 就照播」
-                if (!requestFocus()) { pausedByFocus = true; return; }
+                if (!requestFocus()) { pausedByFocus = true; persist(); return; }
                 pausedByFocus = false;
                 userPaused = false;
                 p.start();
                 setState(STATE_PLAYING);
+                persist();
             } else if (state == STATE_IDLE) {
                 playCurrent();
             } else if (state == STATE_BUFFERING) {
@@ -340,8 +368,20 @@ public class Player {
     public void seekTo(int ms) {
         if (ms < 0) ms = 0;
         MediaPlayer p = mp;
-        if (p == null) return;
+        if (p == null) {
+            // 还没 prepare 好：记下来，prepare 落地时直接跳过去
+            resumeMs = ms;
+            persist();
+            return;
+        }
         try { p.seekTo(ms); } catch (Exception e) { }
+        persist();
+    }
+
+    /** 断点播放：把当前进度 + 播放状态落盘（cursor 级，写量很小） */
+    private void persist() {
+        if (queue.isEmpty() || index < 0) return;
+        ResumeState.saveCursor(ctx, index, getPosition(), state == STATE_PLAYING);
     }
 
     public void stop() {
@@ -351,6 +391,11 @@ public class Player {
     }
 
     public void release() {
+        // 断点播放：退出前最后整份存一次（位置必须从还活着的句柄读，所以要放在 releaseMp 之前）
+        if (!queue.isEmpty() && index >= 0) {
+            ResumeState.save(ctx, queue, index, getPosition(),
+                    state == STATE_PLAYING, quality);
+        }
         released = true;
         pausedByFocus = false;
         ducked = false;
@@ -413,6 +458,10 @@ public class Player {
 
         PlayService.ensure(ctx);        // 前台服务：切到别的 App 也继续放
         AppConfig.setLastSongId(ctx, (int) s.id);
+        // 断点播放：切歌即整份落盘。位置用 resumeMs（恢复断点时为上次进度，否则 0），
+        // 免得「开机自动续播」刚起步就把断点覆盖成 0。
+        ResumeState.save(ctx, queue, index, resumeMs, true, quality);
+        lastCursorSaveAt = System.currentTimeMillis();
         final int idx = index;
         if (listener != null) main.post(new Runnable() {
             @Override public void run() {
@@ -468,6 +517,18 @@ public class Player {
                 public void onPrepared(MediaPlayer mpp) {
                     if (self != mp) return;          // 已被新一代取代
                     try {
+                        // 断点播放：先把进度条拖到上次位置，再决定播不播。
+                        // 只消费一次，之后切歌都从 0 开始。
+                        int rs = resumeMs;
+                        resumeMs = 0;
+                        if (rs > 0) {
+                            try {
+                                int dur = self.getDuration();
+                                // 上次听到结尾了就别硬跳，从头放更合理
+                                if (dur > 0 && rs >= dur - 1000) rs = 0;
+                            } catch (Exception e) { }
+                            if (rs > 0) self.seekTo(rs);
+                        }
                         // 拿不到焦点（通话/导航播报占着）就别开播，等 GAIN 再续
                         if (!requestFocus() || pausedByFocus || !startWhenPrepared) {
                             setState(STATE_PAUSED);

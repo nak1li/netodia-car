@@ -158,6 +158,12 @@ public class MainActivity extends Activity implements Player.Listener {
     private final List<Playlist> currentPlaylists = new ArrayList<Playlist>();
     private int listMode = LIST_SONGS;
     private boolean fmMode = false;           // 当前列表是私人 FM（播完要自动续批）
+    /**
+     * 用户主动点进列表（歌单/每日推荐/心动/FM）时置 true：列表加载完自动从第一首开播。
+     * 开机那一次 loadDaily() 不置位 —— 否则会把断点播放的歌顶掉。
+     * 各加载器入口「读取并清零」，避免失败残留到下一个列表。
+     */
+    private boolean autoPlayOnList = false;
     private boolean fmLoading = false;        // 续批进行中，别叠着发请求
     private boolean queueIsFm = false;        // 当前「播放队列」来自 FM（续批只认这个）
     private volatile int loadSeq = 0;         // 丢弃过期响应（连点左栏时）；后台线程也会读
@@ -374,6 +380,9 @@ public class MainActivity extends Activity implements Player.Listener {
         setupControls();
         setNavSelected(-1);
 
+        // 断点播放：把上次听到的歌和位置摆回来（放在离线判断之前，没网也能接着放缓存）
+        restoreResume();
+
         if (getIntent() != null && getIntent().getBooleanExtra("offline", false)) {
             listMode = LIST_SONGS;
             setHeader("离线模式", "");
@@ -387,6 +396,39 @@ public class MainActivity extends Activity implements Player.Listener {
         loadDaily();
         refreshLikedIds(false);
         prefetchPlaylistCount();
+    }
+
+    /**
+     * 断点播放：把上次关机时听到的歌 + 进度摆回来。
+     *
+     * 只在「进程刚起来」时恢复：Activity 重建（界面被回收）时播放器还活着，
+     * 这时候恢复反而会把正在放的歌顶掉。
+     *
+     * 上次是「放着放着断电」→ 直接接着放；
+     * 上次是「自己按了暂停」→ 只把进度摆好，保持暂停，等他按播放。
+     */
+    private void restoreResume() {
+        if (player == null || player.getCurrent() != null) return;
+        ResumeState st;
+        try {
+            st = ResumeState.load(this);
+        } catch (Exception e) {
+            return;
+        }
+        if (st == null || !st.valid()) return;
+
+        if (st.quality != null && st.quality.length() > 0) player.setQuality(st.quality);
+        player.setQueue(st.songs, st.index);
+
+        Song s = st.songs.get(st.index);
+        // 右栏/底栏先用落盘的元数据画出来：不等网络，开机就能看见「上次听到这」
+        onTrackChanged(s, st.index);
+        onProgress(st.posMs, s.duration);
+
+        player.setResumeMs(st.posMs);      // prepare 落地后跳到这里
+        if (st.playing) player.playCurrent();   // 接着放
+        // 上次是暂停态：什么都不做，进度已摆好；等用户按播放，
+        // toggle() → playCurrent() → prepare 落地时按 resumeMs 续上。
     }
 
     private void bindViews() {
@@ -587,11 +629,12 @@ public class MainActivity extends Activity implements Player.Listener {
         // 折叠态点图标只切页面、不展开左栏 —— 图标栏的意义就是腾出宽度，
         // 点一下就弹开等于白收。要看名字用顶上那个 › 箭头。
         switch (idx) {
-            case NAV_DAILY: loadDaily(); break;
+            // 点左栏 = 「放这个列表」：加载完直接从第一首开播（车主 2026-11-09 要求）
+            case NAV_DAILY: autoPlayOnList = true; loadDaily(); break;
             case NAV_PLAYLIST: loadMyPlaylists(); break;
             case NAV_SEARCH: showSearchDialog(); break;
-            case NAV_HEART: loadHeartbeat(); break;
-            case NAV_FM: loadFm(); break;
+            case NAV_HEART: autoPlayOnList = true; loadHeartbeat(); break;
+            case NAV_FM: autoPlayOnList = true; loadFm(); break;
             default: break;
         }
     }
@@ -646,10 +689,7 @@ public class MainActivity extends Activity implements Player.Listener {
                     return;
                 }
                 if (listMode == LIST_SONGS && r.song != null) {
-                    player.setQuality(AppConfig.getQuality(MainActivity.this));
-                    queueIsFm = fmMode;
-                    player.setQueue(currentSongs, pos);
-                    player.playCurrent();
+                    startListPlayback(pos);
                     return;
                 }
                 if (listMode == LIST_DOWNLOADS) {
@@ -671,6 +711,16 @@ public class MainActivity extends Activity implements Player.Listener {
         });
     }
 
+    /** 从当前列表第 pos 首开始播放（点列表项、点左栏/点歌单自动播放都走这里） */
+    private void startListPlayback(int pos) {
+        if (currentSongs.isEmpty()) return;
+        if (pos < 0 || pos >= currentSongs.size()) pos = 0;
+        player.setQuality(AppConfig.getQuality(this));
+        queueIsFm = fmMode;
+        player.setQueue(currentSongs, pos);
+        player.playCurrent();
+    }
+
     private void toggleCover() {
         boolean show = (cover.getVisibility() != View.VISIBLE);
         cover.setVisibility(show ? View.VISIBLE : View.GONE);
@@ -682,6 +732,7 @@ public class MainActivity extends Activity implements Player.Listener {
 
     private void loadDaily() {
         setNavSelected(NAV_DAILY);
+        final boolean auto = autoPlayOnList; autoPlayOnList = false;
         final int seq = ++loadSeq;
         listMode = LIST_SONGS;
         setHeader("每日推荐", "");
@@ -697,6 +748,7 @@ public class MainActivity extends Activity implements Player.Listener {
                             if (seq != loadSeq) return;
                             String info = new SimpleDateFormat("M月d日", Locale.CHINA).format(new Date());
                             showSongs("每日推荐", info, songs);
+                            if (auto) startListPlayback(0);
                         }
                     });
                 } catch (final ApiClient.NeedLoginException e) {
@@ -738,6 +790,7 @@ public class MainActivity extends Activity implements Player.Listener {
     /** 心动模式：以当前播放的歌为种子，拉一串相似歌曲（服务端滚雪球到 30 首） */
     private void loadHeartbeat() {
         setNavSelected(NAV_HEART);
+        final boolean auto = autoPlayOnList; autoPlayOnList = false;
         final int seq = ++loadSeq;
         listMode = LIST_SONGS;
         setHeader("心动模式", "");
@@ -763,6 +816,7 @@ public class MainActivity extends Activity implements Player.Listener {
                             if (seq != loadSeq) return;
                             String info = seedName.length() > 0 ? "种子：" + seedName : "";
                             showSongs("心动模式", info, songs);
+                            if (auto) startListPlayback(0);
                         }
                     });
                 } catch (final Exception e) {
@@ -781,6 +835,7 @@ public class MainActivity extends Activity implements Player.Listener {
 
     /** 私人 FM：每次 3 首左右，再点一次换一批 */
     private void loadFm() {
+        final boolean auto = autoPlayOnList; autoPlayOnList = false;
         setNavSelected(NAV_FM);
         final int seq = ++loadSeq;
         listMode = LIST_SONGS;
@@ -796,6 +851,7 @@ public class MainActivity extends Activity implements Player.Listener {
                         @Override public void run() {
                             if (seq != loadSeq) return;
                             showSongs("私人 FM", "", songs);
+                            if (auto) startListPlayback(0);
                         }
                     });
                 } catch (final ApiClient.NeedLoginException e) {
@@ -893,6 +949,8 @@ public class MainActivity extends Activity implements Player.Listener {
     /** 打开歌单曲目：复用现有 /api/playlist/detail */
     private void openPlaylist(final Playlist pl) {
         setNavSelected(NAV_PLAYLIST);
+        final boolean auto = true;      // 点进歌单 = 放这个歌单
+        autoPlayOnList = false;
         final int seq = ++loadSeq;
         listMode = LIST_SONGS;
         setHeader(pl.name, "");
@@ -907,6 +965,7 @@ public class MainActivity extends Activity implements Player.Listener {
                         @Override public void run() {
                             if (seq != loadSeq) return;
                             showSongs(pl.name, "", songs);
+                            if (auto) startListPlayback(0);
                         }
                     });
                 } catch (final ApiClient.NeedLoginException e) {
